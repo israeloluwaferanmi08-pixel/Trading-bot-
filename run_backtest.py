@@ -35,7 +35,8 @@ def main():
     print(f"Loaded {len(df_ltf)} LTF bars ({df_ltf['time'].min()} -> {df_ltf['time'].max()})")
     print(f"Loaded {len(df_htf)} HTF bars ({df_htf['time'].min()} -> {df_htf['time'].max()})")
 
-    bt = Backtester(args.symbol, config.STRATEGY, config.BACKTEST, pip_size=sym_cfg.pip_size)
+    strategy_params = config.get_strategy_params(args.symbol)
+    bt = Backtester(args.symbol, strategy_params, config.BACKTEST, pip_size=sym_cfg.pip_size)
     result = bt.run(df_ltf, df_htf, max_open_trades=args.max_open_trades)
 
     print_summary(result, symbol=args.symbol)
