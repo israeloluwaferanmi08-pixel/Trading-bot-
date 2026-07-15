@@ -58,7 +58,7 @@ smc_bot/
   signals.py             combines the above into BUY/SELL signals
   backtester.py           walk-forward, look-ahead-safe backtest engine
   metrics.py              win rate / profit factor / drawdown reporting
-  data_feed.py            MT5 / ccxt / CSV data loaders
+  data_feed.py            ccxt / CSV data loaders
   telegram_notifier.py    Telegram Bot API wrapper
   live_bot.py             polling loop tying it all together
 
@@ -85,16 +85,13 @@ cp .env.example .env
    `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser to find your
    `chat_id` (or add the bot to a group/channel and use that chat's id).
 
-**Data source** — pick one:
-- **MT5** (recommended): install the `MetaTrader5` Python package on Windows
-  with your broker's MT5 terminal open and logged in. Set `mt5_symbol` in
-  `config.py` to match your broker's exact symbol names (e.g. some brokers
-  use `XAUUSD.` or `BTCUSDm`).
-- **ccxt** (BTCUSD only, fallback): `pip install ccxt`. Pulls BTC/USDT from
-  Binance by default — a reasonable proxy for BTCUSD price action but not
-  identical to any specific broker's quote. There's no crypto-exchange
-  equivalent for gold, so XAUUSD needs MT5 (or you can wire in another
-  broker API in `data_feed.py`).
+**Data source**:
+- **ccxt** (BTCUSD): pulls BTC/USDT from Binance by default — a reasonable
+  proxy for BTCUSD price action but not identical to any specific broker's
+  quote.
+- **TwelveData** (XAUUSD, and BTCUSD if ccxt fails): there's no
+  crypto-exchange equivalent for gold, so XAUUSD is served by TwelveData's
+  REST API. See the TwelveData section below for API key setup.
 
 ---
 
@@ -114,7 +111,7 @@ only proves the code runs correctly end-to-end (zone detection, premium/
 discount filtering, trend alignment, trade management, Telegram formatting).
 
 To backtest for real, export historical M15 and H4 candles for XAUUSD/
-BTCUSD from your broker/MT5/TradingView as CSV (columns: time/date, open,
+BTCUSD from your broker/TradingView as CSV (columns: time/date, open,
 high, low, close, [volume]) and point `run_backtest.py` at those files
 instead. Expect to spend real time here tuning `STRATEGY` params in
 `config.py` (impulse threshold, swing fractal width, zone lookback, R
@@ -168,8 +165,7 @@ adjusting `zones.py` accordingly.
   triggers before TP when both land in the same candle (conservative but
   approximate — real execution can differ, especially on gappy weekend
   crypto opens).
-- MT5 access is Windows-only; ccxt's BTC/USDT is not identical to a
-  broker's BTCUSD CFD quote.
+- ccxt's BTC/USDT is not identical to a broker's BTCUSD CFD quote.
 - This bot **only generates and sends signals** — it does not place trades.
   Wiring it to actually execute orders is a separate, higher-stakes step
   (and one you should only take after extensive demo testing).
@@ -185,13 +181,10 @@ on Railway 24/7.
 
 ### ⚠️ Read this before deploying: data source on Railway
 
-`data_feed.py` gets prices from **MetaTrader5** (Windows-only, needs the
-MT5 terminal installed and logged in) with a **ccxt** fallback for BTCUSD
-only. Railway runs Linux containers with no MT5 terminal, so MT5 will
-always fail fast there (the bot detects this and skips straight past it,
-no wasted retries). The real chain on Railway is:
+`data_feed.py` gets prices from **ccxt** for BTCUSD, falling back to
+**TwelveData** for anything ccxt can't serve. The chain on Railway is:
 
-**MT5 (skipped on Railway) → ccxt (BTCUSD only) → TwelveData**
+**ccxt (BTCUSD only) → TwelveData**
 
 - **BTCUSD**: resolved via ccxt/Binance, free and unmetered — no key needed,
   and it **never touches your TwelveData credits**, since ccxt is tried
@@ -268,7 +261,7 @@ configured rather than failing silently.
 | Telegram commands | `commands.py`: `/status /stats /signals /logs /startscan /stopscan /setinterval /reload /restart /ask /help` |
 | Config reload without redeploy | `/setinterval`, `/reload` — operational knobs only, **not** strategy params |
 | Watchdog | `watchdog.py` — hard-restarts the process if no scan completes for `WATCHDOG_MINUTES` |
-| API retry/failover | `fetch_symbol_data()` in `live_bot.py`: MT5 → ccxt → TwelveData, 3 retries per source |
+| API retry/failover | `fetch_symbol_data()` in `live_bot.py`: ccxt → TwelveData, 3 retries per source |
 | TwelveData multi-key rotation | `twelvedata_feed.py` — rotates across up to 3 free keys on rate limit |
 | Gemini `/ask` assistant | `gemini_assistant.py` — read-only Q&A over bot stats/signals, no trading influence |
 | Telegram message queue | `notify_queue.py` — spaces out bursts of signals so Telegram doesn't rate-limit you |
