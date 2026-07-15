@@ -2,10 +2,10 @@
 Higher-timeframe trend filter.
 
 Method: EMA(fast) vs EMA(slow) on the HTF, plus price position relative to
-both. This is deliberately simple and robust rather than another layer of
-structure-break logic (since BOS/CHoCH was explicitly dropped per the
-strategy spec) — it just answers "is the higher timeframe currently
-trending up, down, or flat/undecided".
+both. This is deliberately simple and robust — it just answers "is the
+higher timeframe currently trending up, down, or flat/undecided". LTF
+BOS/CHoCH structure-break confirmation is handled separately, as an
+optional extra layer, in structure.py.
 
     bullish: close > ema_fast > ema_slow
     bearish: close < ema_fast < ema_slow

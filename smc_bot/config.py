@@ -67,6 +67,17 @@ STRATEGY = dict(
     htf_ema_fast=50,
     htf_ema_slow=200,
 
+    # --- LTF market-structure confirmation (BOS/CHoCH) -----------------
+    # Extra AND condition on top of the zone + HTF-trend rules in
+    # signals.py: a BUY additionally requires the LTF (entry timeframe)
+    # to currently be in a bullish BOS/CHoCH structure trend, and a SELL
+    # requires bearish. It only ever vetoes a signal that already passed
+    # the zone/HTF-trend rules — it can't fire one on its own. Uses the
+    # same swing_left/swing_right fractal settings as zone detection.
+    # Set to False to go back to the original two-condition rule set.
+    require_structure_confirmation=True,
+    structure_lookback=300,   # bars of history scanned for BOS/CHoCH state; defaults to zone_lookback if omitted
+
     # --- Loss-cluster cooldown ---------------------------------------
     # After a trade is stopped out at a loss, block any new signal whose
     # entry price sits within `loss_cooldown_atr_mult` * ATR of that
@@ -83,6 +94,22 @@ STRATEGY = dict(
     # to disable.
     loss_cooldown_atr_mult=2.0,
     loss_cooldown_bars=48,
+
+    # --- Consecutive-loss (streak) cooldown ---------------------------
+    # After `consecutive_loss_limit` losing trades close back-to-back (a
+    # win resets the count), ALL new signals are blocked for
+    # `consecutive_loss_cooldown_bars` bars — a blunt circuit breaker for
+    # "something about current conditions isn't working", independent of
+    # price (unlike the ATR cooldown above). Set consecutive_loss_limit
+    # to 0/None to disable. 96 bars on M15 = 1 day.
+    # Backtested on real BTCUSD M15 (Dec 2024-Jun 2025): limit=2 cut max
+    # drawdown from 22.6% -> 18.6% and *improved* win rate/PF/return too
+    # (both in- and out-of-sample) — limits of 3-4 rarely triggered often
+    # enough on this data to matter. 96 bars beat 48/192/384 on return
+    # while matching the drawdown improvement. Re-check if you change
+    # symbol/timeframe/risk since the right threshold is data-dependent.
+    consecutive_loss_limit=2,
+    consecutive_loss_cooldown_bars=96,
 )
 
 # --- Telegram -------------------------------------------------------------
@@ -134,9 +161,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # --- Backtest -----------------------------------------------------------
+# NOTE: initial_balance is in CENTS (a "cent account" style setup) — 1000
+# cents = the equivalent of a $10 real-money account, scaled up. R-multiple
+# math and % returns work identically regardless of the unit; only the
+# absolute balance numbers printed are in cents.
 BACKTEST = dict(
-    initial_balance=10_000.0,
-    risk_percent=1.0,           # % risked per trade
+    initial_balance=1_000.0,
+    risk_percent=5.0,           # % risked per trade
     spread_pips=2,               # cost model, in pip_size units
     slippage_pips=1,
 )

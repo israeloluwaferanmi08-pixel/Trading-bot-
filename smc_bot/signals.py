@@ -4,19 +4,28 @@ Signal engine: combines
   1. Supply/Demand zones (zones.py)
   2. Premium/Discount position of that zone within the current dealing range
   3. HTF trend alignment (trend.py)
+  4. (optional) LTF market-structure confirmation via BOS/CHoCH (structure.py)
 
-into a single BUY/SELL signal, replacing liquidity-sweep + BOS/CHoCH logic
-entirely, and without FVG confluence (per strategy spec).
+into a single BUY/SELL signal, without FVG confluence (per strategy spec).
 
 Rule set:
   BUY  -> price taps an unmitigated DEMAND zone that sits in the DISCOUNT
-          half of the current dealing range, AND HTF trend is bullish.
+          half of the current dealing range, AND HTF trend is bullish,
+          AND (if enabled) LTF structure trend is bullish.
   SELL -> price taps an unmitigated SUPPLY zone that sits in the PREMIUM
-          half of the current dealing range, AND HTF trend is bearish.
+          half of the current dealing range, AND HTF trend is bearish,
+          AND (if enabled) LTF structure trend is bearish.
 
   Zones in the "wrong" half of the range (e.g. a demand zone sitting in
-  premium) or against HTF trend are ignored — this is what keeps the
-  strategy selective rather than firing on every zone tap.
+  premium), against HTF trend, or against current LTF structure are
+  ignored — this is what keeps the strategy selective rather than firing
+  on every zone tap.
+
+  The LTF structure check (STRATEGY["require_structure_confirmation"]) is
+  an extra AND condition layered on top of the existing zone + HTF-trend
+  rules above — it never fires a signal on its own, it can only veto one.
+  Set it to False in config.py to fall back to the original two-condition
+  rule set.
 """
 from dataclasses import dataclass
 from typing import List, Optional
@@ -25,6 +34,7 @@ import pandas as pd
 from .indicators import atr
 from .zones import detect_zones, active_zones, compute_dealing_range, Zone
 from .trend import htf_trend
+from .structure import compute_structure, structure_state
 
 
 @dataclass
@@ -40,6 +50,7 @@ class Signal:
     bar_idx: int
     bar_time: object
     risk_reward: List[float]
+    structure_trend: str = "undefined"  # LTF BOS/CHoCH trend as of this signal (see structure.py)
 
     @property
     def risk_distance(self) -> float:
@@ -49,10 +60,15 @@ class Signal:
         tps = ", ".join(f"TP{i+1}: {tp:.2f}" for i, tp in enumerate(self.take_profits))
         rr = ", ".join(f"{r:.1f}R" for r in self.risk_reward)
         arrow = "🟢 BUY" if self.direction == "BUY" else "🔴 SELL"
+        structure_line = (
+            f"LTF structure: {self.structure_trend.upper()}\n"
+            if self.structure_trend != "undefined" else ""
+        )
         return (
             f"{arrow} {self.symbol}\n"
             f"Zone: {self.zone.kind.upper()} [{self.zone.bottom:.2f} - {self.zone.top:.2f}]\n"
             f"Range position: {self.dealing_range_position.upper()} | HTF trend: {self.htf_trend.upper()}\n"
+            f"{structure_line}"
             f"Entry: {self.entry:.2f}\n"
             f"SL: {self.stop_loss:.2f}\n"
             f"{tps}\n"
@@ -126,6 +142,45 @@ class SignalEngine:
         htf_idx = self._htf_idx_for(df_ltf, up_to_idx, df_htf)
         trend = htf_trend(df_htf, self.p["htf_ema_fast"], self.p["htf_ema_slow"], up_to_idx=htf_idx)
 
+        # LTF BOS/CHoCH structure — optional extra confirmation layered on
+        # top of the zone + HTF-trend rules (see module docstring). Only
+        # computed when enabled since it's an extra pass over the window.
+        #
+        # structure_mode:
+        #   "off"    -> no structure check at all (original 2-condition rules)
+        #   "strict" -> LTF structure must actively AGREE with the trade
+        #               direction (undefined counts as a veto)
+        #   "soft"   -> LTF structure must not actively DISAGREE (undefined
+        #               passes) — vetoes only the clearest counter-structure
+        #               trades, lets ambiguous/early setups through
+        #
+        # `require_structure_confirmation` (bool) is kept for backward
+        # compatibility: True -> "strict", False -> "off", unless
+        # `structure_mode` is set explicitly.
+        structure_mode = self.p.get("structure_mode")
+        if structure_mode is None:
+            structure_mode = "strict" if self.p.get("require_structure_confirmation", False) else "off"
+        ltf_structure = "undefined"
+        if structure_mode != "off":
+            structure_events = compute_structure(
+                df_ltf,
+                swing_left=self.p["swing_left"],
+                swing_right=self.p["swing_right"],
+                up_to_idx=up_to_idx,
+                lookback=self.p.get("structure_lookback", self.p.get("zone_lookback")),
+                precomputed=precomputed,
+            )
+            ltf_structure = structure_state(structure_events)
+
+        def structure_ok(required_direction: str) -> bool:
+            if structure_mode == "off":
+                return True
+            if structure_mode == "soft":
+                opposite = "bearish" if required_direction == "bullish" else "bullish"
+                return ltf_structure != opposite
+            # "strict"
+            return ltf_structure == required_direction
+
         if precomputed is not None:
             local_atr = precomputed["atr"][up_to_idx]
         else:
@@ -147,6 +202,8 @@ class SignalEngine:
             position = dealing_range.zone_position(z)
 
             if z.kind == "demand" and position == "discount" and trend == "bullish":
+                if not structure_ok("bullish"):
+                    continue  # LTF structure vetoes this direction (see structure_mode)
                 entry = z.top
                 stop_loss = z.bottom - self.p["sl_buffer_atr"] * local_atr
                 risk = entry - stop_loss
@@ -166,10 +223,13 @@ class SignalEngine:
                         bar_idx=up_to_idx,
                         bar_time=bar_time,
                         risk_reward=list(self.p["tp_r_multiples"]),
+                        structure_trend=ltf_structure,
                     )
                 )
 
             elif z.kind == "supply" and position == "premium" and trend == "bearish":
+                if not structure_ok("bearish"):
+                    continue  # LTF structure vetoes this direction (see structure_mode)
                 entry = z.bottom
                 stop_loss = z.top + self.p["sl_buffer_atr"] * local_atr
                 risk = stop_loss - entry
@@ -189,6 +249,7 @@ class SignalEngine:
                         bar_idx=up_to_idx,
                         bar_time=bar_time,
                         risk_reward=list(self.p["tp_r_multiples"]),
+                        structure_trend=ltf_structure,
                     )
                 )
 

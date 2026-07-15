@@ -74,6 +74,20 @@ class Backtester:
         cooldown_bars = self.strategy_params.get("loss_cooldown_bars") or 0
         recent_losses: List[tuple] = []
 
+        # Consecutive-loss (streak) cooldown: a DIFFERENT mechanism from the
+        # one above — this one doesn't care about price at all, only about
+        # how many losses in a row just happened. If `consecutive_loss_limit`
+        # losing trades close back-to-back (any wins in between reset the
+        # streak), ALL new signals are blocked for `consecutive_loss_cooldown_bars`
+        # bars, regardless of price/direction. This is a blunt circuit-breaker
+        # for "the strategy/regime looks off right now", as opposed to the
+        # ATR cooldown's "don't re-enter this exact spot". Set
+        # consecutive_loss_limit to 0/None to disable.
+        consecutive_loss_limit = self.strategy_params.get("consecutive_loss_limit") or 0
+        consecutive_loss_cooldown_bars = self.strategy_params.get("consecutive_loss_cooldown_bars") or 0
+        consecutive_losses = 0
+        streak_cooldown_until = -1  # bar idx before which new signals are blocked
+
         n = len(df_ltf)
         warmup = max(self.strategy_params["atr_period"],
                      self.strategy_params["swing_left"] + self.strategy_params["swing_right"] + 2,
@@ -95,18 +109,32 @@ class Backtester:
                 self._update_trade(tr, bar)
                 if not tr.closed:
                     still_open.append(tr)
-                elif cooldown_atr_mult and cooldown_bars and tr.realized_r <= 0:
-                    atr_at_close = precomputed["atr"][i]
-                    if pd.isna(atr_at_close):
-                        atr_at_close = precomputed["atr"][tr.open_idx]
-                    recent_losses.append((i, tr.entry, atr_at_close))
+                else:
+                    if tr.realized_r <= 0:
+                        if cooldown_atr_mult and cooldown_bars:
+                            atr_at_close = precomputed["atr"][i]
+                            if pd.isna(atr_at_close):
+                                atr_at_close = precomputed["atr"][tr.open_idx]
+                            recent_losses.append((i, tr.entry, atr_at_close))
+                        if consecutive_loss_limit:
+                            consecutive_losses += 1
+                            if consecutive_losses >= consecutive_loss_limit:
+                                streak_cooldown_until = i + consecutive_loss_cooldown_bars
+                                consecutive_losses = 0  # needs a fresh streak to re-trigger
+                    elif consecutive_loss_limit:
+                        consecutive_losses = 0  # any win resets the streak
             open_trades = still_open
 
             if cooldown_bars:
                 recent_losses = [(bi, px, a) for (bi, px, a) in recent_losses if i - bi <= cooldown_bars]
 
             # ---- 2. look for a new signal ----
-            if len(open_trades) < max_open_trades and (recalc_every == 1 or i % recalc_every == 0):
+            in_streak_cooldown = consecutive_loss_limit and i < streak_cooldown_until
+            if (
+                len(open_trades) < max_open_trades
+                and not in_streak_cooldown
+                and (recalc_every == 1 or i % recalc_every == 0)
+            ):
                 new_signals = self.engine.evaluate(
                     df_ltf, df_htf, up_to_idx=i, already_signaled_zone_ids=signaled_zone_ids,
                     precomputed=precomputed,

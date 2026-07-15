@@ -49,6 +49,9 @@ def confluence_for(sig) -> list:
     checks.append(f"✔ {sig.zone.kind.title()} zone tapped")
     checks.append(f"✔ Zone in {sig.dealing_range_position.title()} of range")
     checks.append(f"✔ HTF trend {sig.htf_trend.title()} (aligned)")
+    structure_trend = getattr(sig, "structure_trend", "undefined")
+    if structure_trend != "undefined":
+        checks.append(f"✔ LTF structure {structure_trend.title()} (BOS/CHoCH aligned)")
     rr = "/".join(f"{r:.1f}R" for r in sig.risk_reward)
     checks.append(f"✔ Target(s): {rr}")
     return checks
