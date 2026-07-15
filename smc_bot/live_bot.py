@@ -138,7 +138,7 @@ def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30) ->
             logger.exception("Outcome tracking failed for %s", symbol)
 
         try:
-            engine = SignalEngine(symbol, config.STRATEGY)
+            engine = SignalEngine(symbol, config.get_strategy_params(symbol))
             already = set(tuple(x) for x in state.get(symbol, []))
 
             signals = engine.evaluate(df_ltf, df_htf, already_signaled_zone_ids=already)

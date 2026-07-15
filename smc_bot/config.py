@@ -31,7 +31,7 @@ SYMBOLS = {
         ltf="M15",
         htf="H4",
         pip_size=0.1,
-        risk_percent=1.0,
+        risk_percent=5.0,
     ),
     "BTCUSD": SymbolConfig(
         name="BTCUSD",
@@ -48,11 +48,15 @@ SYMBOLS = {
         ltf="M15",
         htf="H4",
         pip_size=1.0,
-        risk_percent=1.0,
+        risk_percent=5.0,
     ),
 }
 
 # --- Strategy parameters -----------------------------------------------
+# STRATEGY holds the shared/base params. Some params are tuned per-symbol
+# (see STRATEGY_OVERRIDES below) because backtesting showed they don't
+# transfer well across symbols — use get_strategy_params(symbol) rather
+# than reading STRATEGY directly so you always get the right blend.
 STRATEGY = dict(
     swing_left=2,             # bars to the left required to confirm a fractal swing point
     swing_right=2,            # bars to the right required to confirm a fractal swing point
@@ -74,8 +78,19 @@ STRATEGY = dict(
     # requires bearish. It only ever vetoes a signal that already passed
     # the zone/HTF-trend rules — it can't fire one on its own. Uses the
     # same swing_left/swing_right fractal settings as zone detection.
-    # Set to False to go back to the original two-condition rule set.
-    require_structure_confirmation=True,
+    #
+    # Backtested per-symbol (see STRATEGY_OVERRIDES): this filter helps on
+    # BTCUSD (raises win rate/PF, cuts drawdown roughly in half) but hurt
+    # every metric on XAUUSD in our sample (Feb-Apr 2026) — fewer trades,
+    # lower PF, and a *worse* drawdown, not better. Default here is off;
+    # BTCUSD's own tuning showed it's a net win there too once you're
+    # optimizing for drawdown-adjusted return rather than raw return alone
+    # — but we're going with raw-return-optimized BTC per the last round
+    # of backtests, so it's off for both symbols right now. Flip back to
+    # True for BTCUSD in STRATEGY_OVERRIDES if you want the lower-drawdown
+    # BTC variant instead (87 trades/54% WR/PF 2.6/DD 18.6% vs 168
+    # trades/50.6% WR/PF 2.17/DD 38.6% with it off).
+    require_structure_confirmation=False,
     structure_lookback=300,   # bars of history scanned for BOS/CHoCH state; defaults to zone_lookback if omitted
 
     # --- Loss-cluster cooldown ---------------------------------------
@@ -91,7 +106,8 @@ STRATEGY = dict(
     # right where it just got stopped out, without needing a full
     # trend-regime classifier. Tested as robust across atr_mult 2.0-3.0
     # and bars 48-192 on XAUUSDT Dec 2025-Apr 2026 data — set to 0 / None
-    # to disable.
+    # to disable. Shared across both symbols; unlike the streak cooldown
+    # below, this one wasn't part of the BOS/CHoCH-era changes.
     loss_cooldown_atr_mult=2.0,
     loss_cooldown_bars=48,
 
@@ -108,9 +124,49 @@ STRATEGY = dict(
     # enough on this data to matter. 96 bars beat 48/192/384 on return
     # while matching the drawdown improvement. Re-check if you change
     # symbol/timeframe/risk since the right threshold is data-dependent.
+    # This one was tuned on BTCUSD specifically — see STRATEGY_OVERRIDES,
+    # which turns it off for XAUUSD (it wasn't part of the pre-BOS/CHoCH
+    # XAU config that backtested best on our XAU sample).
     consecutive_loss_limit=2,
     consecutive_loss_cooldown_bars=96,
 )
+
+# --- Per-symbol strategy overrides --------------------------------------
+# Backtesting (Feb-Apr 2026 XAUUSD, Dec 2024-Jun 2025 BTCUSD, both real
+# data) showed these two symbols want different filter sets — what helps
+# one hurts the other. Rather than silently picking one global config,
+# each symbol's differences from the STRATEGY base are spelled out here.
+# Always fetch params via get_strategy_params(symbol), never read
+# STRATEGY directly, so you get the right blend for the symbol you're
+# trading.
+STRATEGY_OVERRIDES = {
+    "XAUUSD": dict(
+        # Pre-BOS/CHoCH config: no structure filter, no streak cooldown.
+        # Backtest (Feb-Apr 2026, 5% risk): 51 trades, 47.06% win rate,
+        # PF 1.78, +145.5% return, 18.55% max DD. The ATR loss cooldown
+        # above (loss_cooldown_atr_mult/bars) still applies — it was
+        # already on in this config's best backtest.
+        require_structure_confirmation=False,
+        consecutive_loss_limit=0,
+        consecutive_loss_cooldown_bars=0,
+    ),
+    "BTCUSD": dict(
+        # Current/BOS-era config with the structure filter turned back
+        # off — chosen for raw return over drawdown-adjusted return.
+        # Backtest (Dec 2024-Jun 2025, 5% risk): 168 trades, 50.6% win
+        # rate, PF 2.17, +6,758% return, 38.63% max DD. Both cooldowns
+        # (ATR + consecutive-loss streak) are active. If you'd rather
+        # have the lower-drawdown variant instead (87 trades, 54.0% WR,
+        # PF 2.6, +1,666% return, 18.55% max DD), set
+        # require_structure_confirmation=True here.
+        require_structure_confirmation=False,
+    ),
+}
+
+
+def get_strategy_params(symbol: str) -> dict:
+    """Return STRATEGY merged with this symbol's overrides (if any)."""
+    return {**STRATEGY, **STRATEGY_OVERRIDES.get(symbol, {})}
 
 # --- Telegram -------------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
