@@ -7,7 +7,7 @@ df_ltf = load_csv("data/btcusd_m15_real.csv")
 df_htf = load_csv("data/btcusd_h4_real.csv")
 
 sym_cfg = config.SYMBOLS["BTCUSD"]
-bt = Backtester("BTCUSD", config.STRATEGY, config.BACKTEST, pip_size=sym_cfg.pip_size)
+bt = Backtester("BTCUSD", config.get_strategy_params("BTCUSD"), config.BACKTEST, pip_size=sym_cfg.pip_size)
 result = bt.run(df_ltf, df_htf, max_open_trades=1)
 
 trades = [t for t in result["trades"] if t.closed]

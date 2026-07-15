@@ -10,7 +10,7 @@ df_htf = load_csv("data/btcusd_h4_real.csv")
 sym_cfg = config.SYMBOLS["BTCUSD"]
 
 def run_with(atr_mult, bars):
-    params = copy.deepcopy(config.STRATEGY)
+    params = copy.deepcopy(config.get_strategy_params("BTCUSD"))
     params["loss_cooldown_atr_mult"] = atr_mult
     params["loss_cooldown_bars"] = bars
     bt = Backtester("BTCUSD", params, config.BACKTEST, pip_size=sym_cfg.pip_size)
