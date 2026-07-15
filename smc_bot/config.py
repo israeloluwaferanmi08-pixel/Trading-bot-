@@ -35,7 +35,15 @@ SYMBOLS = {
     ),
     "BTCUSD": SymbolConfig(
         name="BTCUSD",
-        ccxt_symbol="BTC/USDT",  # primary live data source for BTCUSD
+        # ccxt/Binance is geo-blocked (HTTP 451) from this host on every
+        # single poll — confirmed in production logs, both timeframes,
+        # every cycle, with zero exceptions. It always falls through to
+        # TwelveData anyway, so trying it first just adds latency and
+        # noisy log lines for no benefit. Left blank to skip straight to
+        # TwelveData. If you ever move hosts (or switch to a
+        # non-geo-restricted exchange like Kraken) this can be
+        # re-enabled — see data_feed.get_ccxt_data for the ccxt call.
+        ccxt_symbol="",
         twelvedata_symbol="BTC/USD",
         ltf="M15",
         htf="H4",
@@ -88,6 +96,16 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", TELEGRAM_CHAT_ID)
 # --- Live loop --------------------------------------------------------
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 STATE_FILE = os.getenv("STATE_FILE", "sent_signals.json")
+
+# --- Smart notification filtering --------------------------------------
+# Zone-level dedup (already_signaled_zone_ids in signals.py) stops the exact
+# same zone firing twice, but separate zones that form close together in
+# price/time can still each produce a "new" signal within minutes of each
+# other. This cooldown throttles Telegram notifications per (symbol,
+# direction) pair — a signal that fires again for the same symbol+direction
+# before the cooldown elapses is still logged (so /stats stays accurate)
+# but is NOT sent to Telegram. Change live with /setcooldown <minutes>.
+NOTIFICATION_COOLDOWN_MINUTES = int(os.getenv("NOTIFICATION_COOLDOWN_MINUTES", "30"))
 
 # --- Operational layer (does NOT affect strategy logic) -----------------
 # All of these are ops/monitoring knobs only — signal generation itself is

@@ -110,8 +110,16 @@ def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
     raise last_err if last_err else RuntimeError(f"No data source succeeded for {sym_cfg.name}")
 
 
-def run_once(notifier, store, state: dict) -> dict:
+def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30) -> dict:
     signals_today = 0
+    cooldown_seconds = max(0, notify_cooldown_minutes) * 60
+    # `_cooldown` is a reserved key inside the same state dict/file that
+    # already tracks per-symbol signaled zone ids — maps "SYMBOL:DIRECTION"
+    # -> epoch seconds of the last signal actually SENT to Telegram for
+    # that pair. Distinct from zone dedup: this throttles notification
+    # frequency regardless of which zone triggered the signal.
+    cooldown_state = state.setdefault("_cooldown", {})
+    now_ts = time.time()
     for symbol, sym_cfg in config.SYMBOLS.items():
         try:
             df_ltf = fetch_symbol_data(sym_cfg, sym_cfg.ltf, n_bars=500)
@@ -138,7 +146,22 @@ def run_once(notifier, store, state: dict) -> dict:
             for sig in signals:
                 confluence = confluence_for(sig)
                 session = session_for(sig.bar_time)
-                signal_id = store.log_signal(sig, confluence, session)
+
+                cooldown_key = f"{symbol}:{sig.direction}"
+                last_sent = cooldown_state.get(cooldown_key, 0)
+                suppressed = (now_ts - last_sent) < cooldown_seconds
+
+                signal_id = store.log_signal(sig, confluence, session, notified=not suppressed)
+                # Zone is marked as handled either way — a suppressed signal
+                # still shouldn't be re-evaluated on the next poll.
+                already.add((sig.zone.formed_idx, sig.zone.kind))
+
+                if suppressed:
+                    logger.info(
+                        "Signal #%s (%s) suppressed — inside %sm notification cooldown for %s",
+                        signal_id, sig.symbol, notify_cooldown_minutes, cooldown_key,
+                    )
+                    continue
 
                 message = (
                     f"Signal #{signal_id}\n"
@@ -148,10 +171,11 @@ def run_once(notifier, store, state: dict) -> dict:
                 )
                 logger.info("New signal #%s: %s", signal_id, sig.to_message().replace("\n", " | "))
                 notifier.send_message(message)
-                already.add((sig.zone.formed_idx, sig.zone.kind))
+                cooldown_state[cooldown_key] = now_ts
                 signals_today += 1
 
             state[symbol] = list(already)
+            state["_cooldown"] = cooldown_state
         except Exception as e:
             logger.exception("Signal engine failed for %s", symbol)
             store.log_error(f"signal_engine:{symbol}", str(e))
@@ -190,7 +214,14 @@ def main():
 
     saved_poll = store.get_meta("poll_seconds")
     poll_seconds = int(saved_poll) if saved_poll else config.POLL_SECONDS
-    bot_state = BotState(poll_seconds, list(config.SYMBOLS.keys()), config.BOT_VERSION)
+    saved_cooldown = store.get_meta("notify_cooldown_minutes")
+    notify_cooldown_minutes = (
+        int(saved_cooldown) if saved_cooldown is not None else config.NOTIFICATION_COOLDOWN_MINUTES
+    )
+    bot_state = BotState(
+        poll_seconds, list(config.SYMBOLS.keys()), config.BOT_VERSION,
+        notify_cooldown_minutes=notify_cooldown_minutes,
+    )
 
     if config.ADMIN_CHAT_ID and config.TELEGRAM_BOT_TOKEN:
         start_command_listener(config.TELEGRAM_BOT_TOKEN, config.ADMIN_CHAT_ID, bot_state, store, notifier)
@@ -225,7 +256,7 @@ def main():
 
         if bot_state.scanning.is_set():
             try:
-                state = run_once(notifier, store, state)
+                state = run_once(notifier, store, state, notify_cooldown_minutes=bot_state.notify_cooldown_minutes)
                 save_state(config.STATE_FILE, state)
             except Exception:
                 logger.exception("Unexpected error in main loop; continuing.")

@@ -63,10 +63,17 @@ class Store:
                     sent_at TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'open',   -- open | tp_hit | sl_hit | expired
                     outcome_r REAL,
-                    closed_at TEXT
+                    closed_at TEXT,
+                    notified INTEGER NOT NULL DEFAULT 1    -- 0 if suppressed by the notification cooldown
                 )
                 """
             )
+            # Migration for DBs created before the `notified` column existed.
+            existing_cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(signals)")}
+            if "notified" not in existing_cols:
+                self.conn.execute(
+                    "ALTER TABLE signals ADD COLUMN notified INTEGER NOT NULL DEFAULT 1"
+                )
             self.conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS meta (
@@ -108,15 +115,15 @@ class Store:
             return new_val
 
     # --- signals ----------------------------------------------------------
-    def log_signal(self, sig, confluence: list, session: str) -> int:
+    def log_signal(self, sig, confluence: list, session: str, notified: bool = True) -> int:
         with _lock, self.conn:
             cur = self.conn.execute(
                 """
                 INSERT INTO signals
                 (symbol, direction, entry, stop_loss, take_profits, zone_kind,
                  zone_top, zone_bottom, range_position, htf_trend, session,
-                 confluence, bar_time, sent_at, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                 confluence, bar_time, sent_at, status, notified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
                 """,
                 (
                     sig.symbol,
@@ -133,6 +140,7 @@ class Store:
                     json.dumps(confluence),
                     str(sig.bar_time),
                     datetime.now(timezone.utc).isoformat(),
+                    1 if notified else 0,
                 ),
             )
             return cur.lastrowid

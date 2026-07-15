@@ -33,13 +33,14 @@ logger = logging.getLogger(__name__)
 
 
 class BotState:
-    def __init__(self, poll_seconds: int, symbols: list, version: str):
+    def __init__(self, poll_seconds: int, symbols: list, version: str, notify_cooldown_minutes: int = 30):
         self.scanning = threading.Event()
         self.scanning.set()
         self.poll_seconds = poll_seconds
         self.symbols = symbols
         self.version = version
         self.restart_requested = threading.Event()
+        self.notify_cooldown_minutes = notify_cooldown_minutes
 
 
 def _handle_command(text: str, state: BotState, store, notifier) -> str:
@@ -54,7 +55,8 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
             f"Last scan: {health.last_scan_str()}\n"
             f"Markets scanned: {health.markets_scanned()}\n"
             f"Memory: {health.memory_mb()} MB | CPU: {health.cpu_percent()}%\n"
-            f"Poll interval: {state.poll_seconds}s"
+            f"Poll interval: {state.poll_seconds}s\n"
+            f"Notification cooldown: {state.notify_cooldown_minutes}m per symbol+direction"
         )
     if cmd == "/stats":
         return alerts.performance_message(store.performance_stats())
@@ -62,7 +64,11 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
         rows = store.recent_signals(10)
         if not rows:
             return "No signals logged yet."
-        lines = [f"#{r['id']} {r['symbol']} {r['direction']} — {r['status']}" for r in rows]
+        lines = [
+            f"#{r['id']} {r['symbol']} {r['direction']} — {r['status']}"
+            + ("" if r["notified"] else " 🔕 (cooldown-suppressed)")
+            for r in rows
+        ]
         return "Last signals:\n" + "\n".join(lines)
     if cmd == "/logs":
         errs = store.conn.execute(
@@ -84,11 +90,27 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
         state.poll_seconds = max(5, int(rest[0]))
         store.set_meta("poll_seconds", state.poll_seconds)
         return f"Poll interval set to {state.poll_seconds}s"
+    if cmd == "/setcooldown":
+        if not rest or not rest[0].isdigit():
+            return "Usage: /setcooldown <minutes>  (0 disables throttling)"
+        state.notify_cooldown_minutes = max(0, int(rest[0]))
+        store.set_meta("notify_cooldown_minutes", state.notify_cooldown_minutes)
+        return (
+            f"Notification cooldown set to {state.notify_cooldown_minutes}m. "
+            f"Repeat signals for the same symbol+direction inside that window will be "
+            f"logged but not sent to Telegram."
+        )
     if cmd == "/reload":
         saved = store.get_meta("poll_seconds")
         if saved:
             state.poll_seconds = int(saved)
-        return f"Reloaded operational settings. Poll interval: {state.poll_seconds}s"
+        saved_cd = store.get_meta("notify_cooldown_minutes")
+        if saved_cd is not None:
+            state.notify_cooldown_minutes = int(saved_cd)
+        return (
+            f"Reloaded operational settings. Poll interval: {state.poll_seconds}s | "
+            f"Notification cooldown: {state.notify_cooldown_minutes}m"
+        )
     if cmd == "/restart":
         state.restart_requested.set()
         return "Restarting now... 🔄"
@@ -108,6 +130,7 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
             "/startscan - resume scanning\n"
             "/stopscan - pause scanning\n"
             "/setinterval <sec> - change poll interval live\n"
+            "/setcooldown <min> - change notification cooldown live\n"
             "/reload - re-apply saved operational settings\n"
             "/restart - hard restart the process\n"
             "/ask <question> - ask Gemini about the bot's stats/signals"
