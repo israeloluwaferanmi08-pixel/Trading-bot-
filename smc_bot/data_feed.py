@@ -3,34 +3,21 @@ Data sources. All loaders return a pandas DataFrame with columns:
     time (pandas datetime64), open, high, low, close, volume
 sorted ascending by time, index reset to 0..n-1.
 
-Three sources are supported:
+Two sources are supported:
 
-  * MetaTrader5 (get_mt5_data) — the recommended source since most brokers
-    that offer both BTCUSD and XAUUSD as tradeable CFD symbols run on
-    MT5/MT4. Only works on Windows with the MT5 terminal installed and
-    logged in; the `MetaTrader5` package is optional (see requirements.txt).
-
-  * ccxt (get_ccxt_data) — fallback source for BTCUSD specifically, pulling
-    BTC/USDT (or another pair you configure) from a crypto exchange. Not a
-    perfect proxy for a broker's BTCUSD quote but fine for building/testing
-    the strategy logic if you don't have MT5 access.
+  * ccxt (get_ccxt_data) — primary live source for BTCUSD, pulling
+    BTC/USDT (or another pair you configure) from a crypto exchange.
 
   * CSV (load_csv) — for backtesting on your own historical data export.
+
+(MT5 support has been removed — this deployment doesn't use it. XAUUSD and
+any symbol without a ccxt equivalent falls straight through to TwelveData;
+see live_bot.py.)
 """
 import logging
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-
-MT5_TIMEFRAME_MAP = {
-    "M1": "TIMEFRAME_M1",
-    "M5": "TIMEFRAME_M5",
-    "M15": "TIMEFRAME_M15",
-    "M30": "TIMEFRAME_M30",
-    "H1": "TIMEFRAME_H1",
-    "H4": "TIMEFRAME_H4",
-    "D1": "TIMEFRAME_D1",
-}
 
 CCXT_TIMEFRAME_MAP = {
     "M1": "1m",
@@ -41,32 +28,6 @@ CCXT_TIMEFRAME_MAP = {
     "H4": "4h",
     "D1": "1d",
 }
-
-
-def get_mt5_data(symbol: str, timeframe: str, n_bars: int = 500) -> pd.DataFrame:
-    try:
-        import MetaTrader5 as mt5
-    except ImportError as e:
-        raise RuntimeError(
-            "MetaTrader5 package not installed, or not on Windows. "
-            "Run `pip install MetaTrader5` on a Windows machine with the "
-            "MT5 terminal installed, or use get_ccxt_data for BTCUSD instead."
-        ) from e
-
-    if not mt5.initialize():
-        raise RuntimeError(f"MT5 initialize() failed: {mt5.last_error()}")
-
-    try:
-        tf_const = getattr(mt5, MT5_TIMEFRAME_MAP[timeframe])
-        rates = mt5.copy_rates_from_pos(symbol, tf_const, 0, n_bars)
-        if rates is None or len(rates) == 0:
-            raise RuntimeError(f"MT5 returned no data for {symbol} {timeframe}: {mt5.last_error()}")
-        df = pd.DataFrame(rates)
-        df["time"] = pd.to_datetime(df["time"], unit="s")
-        df = df.rename(columns={"tick_volume": "volume"})
-        return df[["time", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
-    finally:
-        mt5.shutdown()
 
 
 def get_ccxt_data(exchange_id: str, symbol: str, timeframe: str, limit: int = 500) -> pd.DataFrame:

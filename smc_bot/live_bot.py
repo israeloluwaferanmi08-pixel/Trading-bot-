@@ -4,13 +4,11 @@ the signal engine, and push new signals to Telegram.
 
 Run with:  python -m smc_bot.live_bot
 
-Data source per symbol defaults to MT5. If MT5 isn't available for a given
-symbol (e.g. you're not on Windows / on Railway), it falls back to ccxt for
-symbols that have a ccxt_symbol configured (BTCUSD via BTC/USDT, which is
-free/unmetered), and only falls back further to TwelveData if ccxt also
-fails or isn't configured for that symbol. XAUUSD has no crypto-exchange
-equivalent, so it skips ccxt and is served by TwelveData. See README for a
-note on this before you deploy.
+Data source per symbol: ccxt is tried first for symbols that have a
+ccxt_symbol configured (BTCUSD via BTC/USDT, which is free/unmetered), and
+falls back to TwelveData if ccxt fails or isn't configured for that symbol.
+XAUUSD has no crypto-exchange equivalent, so it skips ccxt and is served by
+TwelveData directly. (MT5 support has been removed from this deployment.)
 
 Everything below signal-generation (SignalEngine.evaluate / Signal) is the
 operational layer: health monitoring, error alerts, crash recovery,
@@ -28,7 +26,7 @@ from datetime import datetime, timezone
 
 from . import alerts, config, health, outcomes, reports, twelvedata_feed, watchdog
 from .commands import BotState, start_command_listener
-from .data_feed import get_ccxt_data, get_mt5_data
+from .data_feed import get_ccxt_data
 from .notify_queue import QueuedNotifier
 from .session import confluence_for, session_for
 from .signals import SignalEngine
@@ -56,33 +54,16 @@ def save_state(path: str, state: dict) -> None:
 
 
 def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
-    """MT5 -> ccxt -> TwelveData, each retried up to MAX_FETCH_RETRIES times
-    before falling through to the next source (checklist item 14 — API
-    failover).
+    """ccxt -> TwelveData, each retried up to MAX_FETCH_RETRIES times before
+    falling through to the next source (checklist item 14 — API failover).
 
-    ccxt is tried before TwelveData because it's free and unmetered. In
-    practice that means: for BTCUSD (the only symbol with a ccxt_symbol
-    configured), MT5 fails on Railway, ccxt/Binance immediately picks it
-    up, and TwelveData's metered credits are never spent on BTC at all.
-    XAUUSD has no ccxt equivalent (ccxt_symbol is ""), so it falls straight
-    through the ccxt block untouched and is served by TwelveData as
-    before — that's the source that actually works on Railway for gold.
+    ccxt is tried first because it's free and unmetered. For BTCUSD (the
+    only symbol with a ccxt_symbol configured), ccxt/Binance is used and
+    TwelveData's metered credits are never spent on BTC at all. XAUUSD has
+    no ccxt equivalent (ccxt_symbol is ""), so it falls straight through the
+    ccxt block untouched and is served by TwelveData.
     """
     last_err = None
-
-    for attempt in range(1, MAX_FETCH_RETRIES + 1):
-        try:
-            return get_mt5_data(sym_cfg.mt5_symbol, timeframe, n_bars)
-        except Exception as e:
-            last_err = e
-            logger.warning(
-                "MT5 fetch failed for %s (%s), attempt %d/%d: %s",
-                sym_cfg.name, timeframe, attempt, MAX_FETCH_RETRIES, e,
-            )
-            if "not installed" in str(e) or "not on Windows" in str(e):
-                break  # MT5 simply isn't available here (e.g. Railway) — no point retrying
-            if attempt < MAX_FETCH_RETRIES:
-                time.sleep(RETRY_BACKOFF_SECONDS)
 
     if sym_cfg.ccxt_symbol:
         for attempt in range(1, MAX_FETCH_RETRIES + 1):

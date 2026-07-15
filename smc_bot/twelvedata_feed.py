@@ -1,12 +1,13 @@
 """
 TwelveData live price data with multi-key rotation.
 
-Why this exists: MT5 (the primary source in data_feed.py) only works on
-Windows with a broker terminal installed, so it can't run on Railway.
-TwelveData's REST API works anywhere, and its free tier is generous enough
-for M15/H4 polling — but each free key is rate-limited (HTTP 429 once you
-exceed its per-minute/per-day credits). Running 3 keys means when one gets
-rate-limited we just rotate to the next instead of failing the whole cycle.
+Why this exists: ccxt only covers crypto pairs (BTCUSD via BTC/USDT), so
+symbols like XAUUSD with no crypto-exchange equivalent need a real REST
+data source. TwelveData's REST API works anywhere, and its free tier is
+generous enough for M15/H4 polling — but each free key is rate-limited
+(HTTP 429 once you exceed its per-minute/per-day credits). Running 3 keys
+means when one gets rate-limited we just rotate to the next instead of
+failing the whole cycle.
 
 This is a data-source concern only — it has no effect on STRATEGY or how
 signals.py decides to fire a signal.

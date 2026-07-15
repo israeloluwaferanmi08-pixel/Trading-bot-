@@ -15,9 +15,8 @@ load_dotenv()  # loads .env if present, silently does nothing otherwise
 @dataclass
 class SymbolConfig:
     name: str                 # display name, e.g. "XAUUSD"
-    mt5_symbol: str            # symbol as listed on your MT5 broker
     ccxt_symbol: str           # e.g. "BTC/USDT" (used only for BTCUSD via crypto exchange)
-    twelvedata_symbol: str = ""  # e.g. "XAU/USD" — used on Railway where MT5 isn't available
+    twelvedata_symbol: str = ""  # e.g. "XAU/USD"
     ltf: str = "M15"           # entry / lower timeframe
     htf: str = "H4"            # higher timeframe used for trend filter
     pip_size: float = 0.01     # smallest price increment relevant for SL buffer
@@ -27,8 +26,7 @@ class SymbolConfig:
 SYMBOLS = {
     "XAUUSD": SymbolConfig(
         name="XAUUSD",
-        mt5_symbol="XAUUSD",
-        ccxt_symbol="",          # gold isn't on crypto exchanges — MT5 only
+        ccxt_symbol="",          # gold isn't on crypto exchanges
         twelvedata_symbol="XAU/USD",
         ltf="M15",
         htf="H4",
@@ -37,8 +35,7 @@ SYMBOLS = {
     ),
     "BTCUSD": SymbolConfig(
         name="BTCUSD",
-        mt5_symbol="BTCUSD",     # adjust to your broker's exact symbol name
-        ccxt_symbol="BTC/USDT",  # fallback data source if you don't have MT5 crypto CFDs
+        ccxt_symbol="BTC/USDT",  # primary live data source for BTCUSD
         twelvedata_symbol="BTC/USD",
         ltf="M15",
         htf="H4",
@@ -101,7 +98,7 @@ HEARTBEAT_MINUTES = int(os.getenv("HEARTBEAT_MINUTES", "60"))
 WATCHDOG_MINUTES = int(os.getenv("WATCHDOG_MINUTES", "20"))
 TELEGRAM_MIN_GAP_SECONDS = float(os.getenv("TELEGRAM_MIN_GAP_SECONDS", "1.2"))
 
-# --- TwelveData (live price data on Railway, where MT5 isn't available) ----
+# --- TwelveData (live price data for symbols/timeframes ccxt can't serve) --
 # Up to 3 free-tier keys, rotated automatically: when one gets rate-limited
 # (HTTP 429 or a TwelveData "code":429 body), it's put on cooldown and the
 # next key is tried instead. Leave keys 2/3 blank to run with just one.
