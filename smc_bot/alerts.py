@@ -11,7 +11,7 @@ from . import health
 def startup_message(version: str, symbols: list, telegram_ok: bool, railway: bool) -> str:
     markets = "\n".join(f"  • {s}" for s in symbols)
     return (
-        "🌲 Forest Bot Started\n"
+        "🌲 SILVER BOT Started\n"
         f"Version: {version}\n"
         f"Markets:\n{markets}\n"
         f"Railway: {'Connected' if railway else 'Local run'}\n"
@@ -22,7 +22,7 @@ def startup_message(version: str, symbols: list, telegram_ok: bool, railway: boo
 
 def shutdown_message(reason: str, stats: dict) -> str:
     return (
-        "🛑 Forest Bot Shutting Down\n"
+        "🛑 SILVER BOT Shutting Down\n"
         f"Reason: {reason}\n"
         f"Uptime: {health.uptime_str()}\n"
         f"Markets scanned: {stats.get('markets_scanned', 0)}\n"
@@ -34,7 +34,7 @@ def shutdown_message(reason: str, stats: dict) -> str:
 def heartbeat_message(markets_scanned: int, signals_today: int) -> str:
     healthy = health.is_healthy()
     return (
-        "🟢 Forest Bot Online\n\n"
+        "🟢 SILVER BOT Online\n\n"
         f"Uptime:\n{health.uptime_str()}\n\n"
         f"Markets scanned:\n{markets_scanned}\n\n"
         f"Signals today:\n{signals_today}\n\n"
@@ -47,7 +47,7 @@ def heartbeat_message(markets_scanned: int, signals_today: int) -> str:
 
 def error_message(module: str, reason: str, restarting: bool = False) -> str:
     return (
-        "🚨 Forest Bot Error\n\n"
+        "🚨 SILVER BOT Error\n\n"
         f"Module:\n{module}\n\n"
         f"Reason:\n{reason}\n\n"
         f"Time:\n{datetime.now(timezone.utc).strftime('%H:%M UTC')}\n\n"

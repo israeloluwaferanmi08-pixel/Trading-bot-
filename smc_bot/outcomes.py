@@ -26,8 +26,6 @@ def check_outcomes(store, notifier, symbol: str, df_ltf: pd.DataFrame) -> None:
         return
 
     recent = df_ltf  # already the latest n_bars fetched this cycle
-    hi = recent["high"].max()
-    lo = recent["low"].min()
     last_time = recent["time"].iloc[-1] if "time" in recent.columns else None
 
     for row in open_rows:
@@ -38,10 +36,20 @@ def check_outcomes(store, notifier, symbol: str, df_ltf: pd.DataFrame) -> None:
 
         sent_at = datetime.fromisoformat(row["sent_at"])
         bars_elapsed = None
+        bars_since = recent
         if last_time is not None and "time" in recent.columns:
             sent_time = pd.to_datetime(sent_at.replace(tzinfo=None))
             bars_since = recent[recent["time"] > sent_time]
             bars_elapsed = len(bars_since)
+
+        # Only candles that have formed *since this signal was sent* count
+        # toward SL/TP checks. Previously hi/lo were taken over the whole
+        # fetched window (up to 500 bars), so price action from BEFORE the
+        # signal even existed could immediately trigger a false SL/TP hit.
+        if bars_since.empty:
+            continue
+        hi = bars_since["high"].max()
+        lo = bars_since["low"].min()
 
         hit_sl = False
         hit_tp = False

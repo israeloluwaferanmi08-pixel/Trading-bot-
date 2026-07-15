@@ -122,13 +122,54 @@ def start_command_listener(bot_token: str, admin_chat_id: str, state: BotState, 
         saved = store.get_meta("telegram_update_offset")
         if saved:
             offset = int(saved)
+
+        # getUpdates (long-polling) and an active webhook are mutually
+        # exclusive on Telegram's side — if a webhook was ever registered
+        # for this bot token (e.g. from an earlier test/deploy), every
+        # getUpdates call fails with 409 Conflict and commands silently
+        # never arrive. Clear any webhook before we start polling so this
+        # can't block us.
+        try:
+            wh = requests.get(f"{base_url}/getWebhookInfo", timeout=15).json()
+            if wh.get("result", {}).get("url"):
+                logger.warning("Removing stale Telegram webhook so getUpdates can work: %s", wh["result"]["url"])
+                requests.get(f"{base_url}/deleteWebhook", timeout=15)
+        except requests.RequestException as e:
+            logger.warning("Command listener: could not check/clear webhook: %s", e)
+
+        consecutive_failures = 0
+        conflict_alert_sent = False
+
         while True:
             try:
                 params = {"timeout": 25}
                 if offset is not None:
                     params["offset"] = offset
                 resp = requests.get(f"{base_url}/getUpdates", params=params, timeout=30)
+                if resp.status_code == 409:
+                    # Another poller (old Railway instance, local test run,
+                    # or a webhook we couldn't clear) is holding the
+                    # long-poll connection for this bot token.
+                    consecutive_failures += 1
+                    logger.warning(
+                        "Command listener: 409 Conflict from getUpdates — another process is polling "
+                        "this bot token, or a webhook is still set. (failure #%d)", consecutive_failures,
+                    )
+                    if consecutive_failures == 3 and not conflict_alert_sent:
+                        conflict_alert_sent = True
+                        try:
+                            notifier.send_now(
+                                "⚠️ Telegram commands aren't working: another process (old Railway "
+                                "instance, local test run, or a webhook) is already polling this bot "
+                                "token, so getUpdates keeps getting rejected with 409 Conflict. Make sure "
+                                "only one instance of this bot is running, and that no webhook is set."
+                            )
+                        except Exception:
+                            pass
+                    time.sleep(5)
+                    continue
                 resp.raise_for_status()
+                consecutive_failures = 0
                 updates = resp.json().get("result", [])
                 for upd in updates:
                     offset = upd["update_id"] + 1
