@@ -73,6 +73,17 @@ class TwelveDataClient:
                         "interval": interval,
                         "outputsize": n_bars,
                         "apikey": key,
+                        # Without this, TwelveData returns timestamps in the
+                        # instrument's exchange-local timezone (not UTC).
+                        # Every downstream consumer of df["time"] — session
+                        # labeling, TP/SL outcome tracking's "only candles
+                        # since this signal was sent" filter, HTF/LTF time
+                        # alignment — assumes UTC. A local-time offset here
+                        # silently breaks all of them (wrong session tags,
+                        # false TP/SL hits from candles that predate the
+                        # signal, etc.), so force UTC at the source instead
+                        # of trying to correct for it downstream.
+                        "timezone": "UTC",
                     },
                     timeout=15,
                 )

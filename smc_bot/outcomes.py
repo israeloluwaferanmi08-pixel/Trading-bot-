@@ -38,8 +38,27 @@ def check_outcomes(store, notifier, symbol: str, df_ltf: pd.DataFrame) -> None:
         bars_elapsed = None
         bars_since = recent
         if last_time is not None and "time" in recent.columns:
-            sent_time = pd.to_datetime(sent_at.replace(tzinfo=None))
-            bars_since = recent[recent["time"] > sent_time]
+            # sent_at is always tz-aware UTC (store.py writes
+            # datetime.now(timezone.utc).isoformat()). Candle times are
+            # expected to be UTC too (see twelvedata_feed.py's explicit
+            # timezone=UTC param and ccxt's ms-epoch conversion), but we
+            # compare tz-aware-to-tz-aware here rather than silently
+            # stripping tzinfo and assuming both sides already agree —
+            # a source that ever started returning localized or
+            # tz-aware-non-UTC timestamps would otherwise reintroduce the
+            # exact "counts candles from before the signal existed" bug
+            # this filter exists to prevent.
+            sent_time = pd.Timestamp(sent_at)
+            bar_times = pd.to_datetime(recent["time"])
+            if bar_times.dt.tz is None:
+                bar_times = bar_times.dt.tz_localize("UTC")
+            else:
+                bar_times = bar_times.dt.tz_convert("UTC")
+            if sent_time.tzinfo is None:
+                sent_time = sent_time.tz_localize("UTC")
+            else:
+                sent_time = sent_time.tz_convert("UTC")
+            bars_since = recent[bar_times > sent_time]
             bars_elapsed = len(bars_since)
 
         # Only candles that have formed *since this signal was sent* count

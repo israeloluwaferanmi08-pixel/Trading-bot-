@@ -68,7 +68,7 @@ def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
     if sym_cfg.ccxt_symbol:
         for attempt in range(1, MAX_FETCH_RETRIES + 1):
             try:
-                logger.info("Falling back to ccxt (binance) for %s", sym_cfg.name)
+                logger.info("Trying ccxt (binance) for %s", sym_cfg.name)
                 return get_ccxt_data("binance", sym_cfg.ccxt_symbol, timeframe, n_bars)
             except Exception as e:
                 last_err = e
@@ -76,6 +76,17 @@ def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
                     "ccxt fetch failed for %s (%s), attempt %d/%d: %s",
                     sym_cfg.name, timeframe, attempt, MAX_FETCH_RETRIES, e,
                 )
+                # HTTP 451 ("restricted location") is Binance permanently
+                # geo-blocking this host — retrying with backoff can't fix
+                # that, it just burns ~15s per timeframe every single poll
+                # cycle before falling through to TwelveData anyway. Fail
+                # over immediately instead.
+                if "451" in str(e) or "restricted location" in str(e).lower():
+                    logger.info(
+                        "ccxt (binance) geo-blocked for %s — skipping retries, falling back to TwelveData",
+                        sym_cfg.name,
+                    )
+                    break
                 if attempt < MAX_FETCH_RETRIES:
                     time.sleep(RETRY_BACKOFF_SECONDS)
 
