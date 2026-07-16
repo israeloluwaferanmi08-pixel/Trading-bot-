@@ -1,1 +1,1 @@
-worker: python -m smc_bot.live_bot
+web: python -m smc_bot.live_bot

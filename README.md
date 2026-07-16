@@ -258,7 +258,7 @@ configured rather than failing silently.
 | Signal IDs | auto-increment `id` in the `signals` table, shown in every message |
 | Daily / weekly reports | `reports.py`, scheduled from the main loop |
 | Performance analytics (win rate, avg R, best/worst symbol & session) | `store.performance_stats()`, `/stats` |
-| Telegram commands | `commands.py`: `/status /stats /signals /logs /startscan /stopscan /setinterval /reload /restart /ask /help` |
+| Telegram commands | `commands.py`: `/status /stats /signals /logs /startscan /stopscan /scannow /enable /disable /setinterval /reload /restart /ask /help` |
 | Config reload without redeploy | `/setinterval`, `/reload` — operational knobs only, **not** strategy params |
 | Watchdog | `watchdog.py` — hard-restarts the process if no scan completes for `WATCHDOG_MINUTES` |
 | API retry/failover | `fetch_symbol_data()` in `live_bot.py`: ccxt → TwelveData, 3 retries per source |
@@ -268,6 +268,52 @@ configured rather than failing silently.
 | Startup / shutdown messages | `alerts.startup_message` / `shutdown_message` |
 | Signal confluence breakdown | `session.py: confluence_for()` — see note below |
 | Trade outcome tracking (TP/SL/expired) | `outcomes.py`, runs each cycle against the candles already fetched |
+| **Web admin dashboard** | `dashboard.py` + `templates/` — status, controls, performance, signals/errors, equity chart. See below. |
+
+### Web dashboard
+
+A token-gated web UI runs in a background thread inside the same process
+as the live bot loop (no second service, shares the same SQLite `Store`).
+It's read-only except for the same operational knobs already exposed over
+Telegram — scan on/off, scan now, per-symbol enable/disable, poll
+interval. **Nothing on the dashboard can touch `STRATEGY` or how a signal
+is generated.**
+
+**What it shows:** scan status, uptime, memory/CPU, last-scan time,
+restart count · overall + per-symbol win rate/avg R/best-worst breakdown ·
+a cumulative-R equity chart over closed trades · the last 30 signals with
+outcome · the last 20 logged errors.
+
+**What it controls:** pause/resume scanning, force an immediate scan
+cycle, enable/disable a specific market, change the poll interval live —
+each of these is the same `BotState` object the Telegram `/commands` use,
+so a change from one shows up in the other instantly.
+
+**Setup**
+1. `DASHBOARD_ENABLED` defaults to `true`. Set to `false` to disable it
+   entirely (e.g. if you don't want any HTTP surface at all).
+2. Set `DASHBOARD_TOKEN` in your environment to a long random string —
+   without it, a random token is generated each process start and sent to
+   your Telegram admin chat (and logged), so you're never locked out, but
+   the URL you need changes on every restart unless you set it yourself.
+3. On Railway: the `Procfile`/`railway.json` process is named `web` and
+   binds to `$PORT` automatically, but Railway only issues a public URL
+   once you turn on **networking** for the service (Settings → Networking
+   → Generate Domain, or attach a custom domain). Local runs default to
+   port 8080 (`DASHBOARD_PORT` to override).
+4. Open `https://<your-railway-domain>/?token=<your token>` — the token
+   is checked once and then kept in a session cookie, so you don't need
+   to keep it in the URL after the first load.
+5. Uses `waitress` as the WSGI server if installed (it's in
+   `requirements.txt`); falls back to Flask's built-in dev server
+   otherwise, which is fine for a single-operator dashboard but not
+   something to expose at real traffic volume.
+
+**Honest limitations:** single shared token, not per-user accounts — this
+is a personal ops panel, not a multi-tenant product surface. If you're
+planning to eventually offer this as a service to other people, the auth
+model here would need to change (see the plugin-architecture /
+multi-tenant discussion from the roadmap).
 
 **Note on "confidence": your strategy is a hard AND-filter (zone kind +
 premium/discount position + HTF trend all have to align), not a scored
