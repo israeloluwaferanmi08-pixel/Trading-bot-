@@ -1,0 +1,9 @@
+# Extra requirements for mt5_live_bot.py -- install these ON TOP of
+# requirements.txt, on the Windows VPS only. The MetaTrader5 package
+# requires a running MT5 terminal on the same Windows machine; it will
+# not install/work on Linux or macOS.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-mt5.txt
+
+MetaTrader5>=5.0.45
