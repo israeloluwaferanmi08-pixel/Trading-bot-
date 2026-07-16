@@ -83,6 +83,28 @@ def drawdown_alert_message(symbol: str, dd_pct: float, threshold: float, balance
     )
 
 
+def stale_chased_message(sig, progress: float, max_progress: float) -> str:
+    """
+    A signal cleared the strategy's own rules, but by the time its LTF bar
+    closed, price had already covered more than `max_progress` of the
+    distance from entry to TP1 — meaning most of the move this zone was
+    supposed to catch already happened before the alert could even be
+    sent. Sending it anyway would mean chasing an entry near the top of
+    the move rather than the zone itself. Logged with
+    status='stale_chased' for visibility; not counted toward performance
+    stats, same as a skipped-concurrency signal.
+    """
+    arrow = "🟢 BUY" if sig.direction == "BUY" else "🔴 SELL"
+    return (
+        f"⚠️ Signal skipped — already {progress*100:.0f}% of the way to TP1 by the time the bar closed "
+        f"(limit: {max_progress*100:.0f}%)\n"
+        f"{arrow} {sig.symbol} @ {sig.entry:.2f} would have been sent, "
+        "but price already ran most of the way to target before this alert could go out — "
+        "taking it now means chasing, not catching the zone.\n"
+        "Not logged as an open trade; not counted toward your performance stats."
+    )
+
+
 def skipped_concurrency_message(sig, open_count: int, max_open: int) -> str:
     """
     A signal cleared the strategy's own rules but wasn't sent as an

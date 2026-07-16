@@ -68,6 +68,45 @@ STRATEGY = dict(
     max_zone_age_bars=250,    # a zone older than this (untouched) is dropped as stale
     sl_buffer_atr=0.15,       # stop loss buffer beyond zone edge, in ATR
     tp_r_multiples=(2.0, 3.0),  # take-profit targets expressed in R multiples
+
+    # --- Entry depth into zone ------------------------------------------
+    # 0.0 (default, unchanged behavior) = fill at the zone's OUTER edge
+    # the instant price taps it at all (z.top for demand, z.bottom for
+    # supply) — this is the widest possible SL, since risk = the entire
+    # zone height, and it's the earliest possible fill.
+    # 1.0 = fill at the zone's INNER edge (z.bottom for demand, z.top for
+    # supply) — tightest possible SL (just the buffer), but requires price
+    # to retrace all the way through the zone before firing, and won't
+    # fire at all if price reverses before reaching that deep.
+    # Anything between (e.g. 0.5 = mid-zone) trades off SL size against
+    # fill probability. Only changes WHERE inside an already-tapped zone
+    # the entry sits — it doesn't touch zone detection, mitigation, or
+    # the premium/discount and HTF-trend filters above it.
+    # Set to 0.25 after A/B backtesting on real XAUUSD data (17mo):
+    # win rate 45.2%->51.1%, PF 1.65->2.06, total R 110.8->172.7,
+    # max DD 56.6%->50.6%, avg SL distance 13.47->10.38. 0.5 was tested
+    # too but gave no extra edge over 0.25 for a tighter (more fragile)
+    # stop, so 0.25 was picked as the better risk/reward point, not 0.5.
+    entry_depth_pct=0.25,
+
+    # --- Structure-based trailing stop (post-TP1) ----------------------
+    # Off by default so existing backtests/behavior are unchanged unless
+    # explicitly opted into. When enabled, ONLY affects the runner after
+    # TP1 (the existing move-to-breakeven-at-TP1 behavior is unchanged) —
+    # from then on, the stop trails behind the most recently *confirmed*
+    # swing low (BUY) / swing high (SELL), using the same swing_left/
+    # swing_right fractal already used for zone detection, offset by
+    # sl_buffer_atr (same buffer used on the initial SL) so the stop
+    # doesn't sit exactly on the pivot. The stop only ever tightens —
+    # never loosens back past breakeven. Look-ahead safe: a swing at
+    # index j is only used once bar j+swing_right has closed, and the
+    # backtester only applies a newly confirmed swing starting the NEXT
+    # bar after it was confirmed (same convention as new signal entries).
+    # Set to True after A/B backtesting stacked on top of entry_depth_pct=0.25
+    # (17mo real XAUUSD): PF 2.06->2.15, total R 172.7->192.8, max DD
+    # 50.6%->48.4%, win rate flat (51.05->50.88, noise). Free improvement —
+    # no added risk, no fewer trades — so kept on by default.
+    trail_stop_after_tp1=True,
     htf_ema_fast=50,
     htf_ema_slow=200,
 
@@ -234,6 +273,20 @@ TELEGRAM_MIN_GAP_SECONDS = float(os.getenv("TELEGRAM_MIN_GAP_SECONDS", "1.2"))
 # the notes file for how much worse drawdown gets when this is uncapped).
 LIVE_MAX_OPEN_PER_SYMBOL = int(os.getenv("LIVE_MAX_OPEN_PER_SYMBOL", "1"))
 
+# A signal only actually exists once its LTF bar closes and the poll cycle
+# picks it up — by then price may have already run partway toward TP1
+# within that same bar, i.e. the "free" retracement the zone represents
+# has partly already happened before you can act on the alert. This caps
+# how much of the entry->TP1 distance the bar's close is allowed to have
+# already covered before a signal is treated as stale/chased rather than
+# sent as an actionable alert. 0.5 = if price closed more than halfway
+# from entry to TP1 already, skip the live alert (still logged for
+# visibility, status='stale_chased', same pattern as skipped_concurrency).
+# Purely a live-alerting filter — never touches the backtester, which
+# already assumes a perfect fill at `entry` regardless of this.
+# Set to 1.0 (or higher) to disable.
+STALE_SIGNAL_MAX_PROGRESS = float(os.getenv("STALE_SIGNAL_MAX_PROGRESS", "0.5"))
+
 # Drawdown alerting (see smc_bot/drawdown.py). Tracks a simulated running
 # balance per symbol using the exact same compounding formula as the
 # backtester (balance * risk_percent/100 per R, applied per closed trade),
@@ -260,6 +313,38 @@ TWELVEDATA_COOLDOWN_SECONDS = int(os.getenv("TWELVEDATA_COOLDOWN_SECONDS", "60")
 # --- Gemini (Telegram /ask assistant only — read-only, no trading impact) --
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# --- MT5 (Windows VPS execution layer) ----------------------------------
+# Only used by mt5_live_bot.py, the Windows-only entrypoint that fetches
+# data from and places demo orders in a running MT5 terminal. Not used by
+# live_bot.py (Telegram-alerts-only, Railway/Linux) at all -- the two
+# entrypoints are independent; see MT5_VPS_SETUP.md.
+MT5_LOGIN = int(os.getenv("MT5_LOGIN", "0") or "0")
+MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
+MT5_SERVER = os.getenv("MT5_SERVER", "")
+# Only needed if the terminal isn't the one MT5's Python package finds by
+# default -- path to terminal64.exe, e.g.
+# "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+MT5_TERMINAL_PATH = os.getenv("MT5_TERMINAL_PATH", "")
+# Refuses to place orders unless the connected account is a demo account.
+# Do not set this to false without understanding what you're doing.
+MT5_DEMO_ONLY = os.getenv("MT5_DEMO_ONLY", "true").lower() in ("1", "true", "yes")
+# Unique tag on every order this bot places, so you (and the bot, on
+# restart) can tell its positions apart from manual trades on the same
+# account.
+MT5_MAGIC_NUMBER = int(os.getenv("MT5_MAGIC_NUMBER", "26071601"))
+# Broker demo servers name instruments differently (XAUUSD vs XAUUSD.m vs
+# GOLD, BTCUSD vs BTCUSDm, etc). List extra candidate names per symbol,
+# comma-separated, tried in order after the SYMBOLS[...].name itself;
+# mt5_feed.resolve_symbol() picks whichever one actually exists on your
+# broker. Check your MT5 Market Watch for the exact spelling and set these
+# explicitly rather than relying on the fuzzy-match fallback.
+MT5_SYMBOL_CANDIDATES = {
+    "XAUUSD": [c.strip() for c in os.getenv("MT5_XAUUSD_CANDIDATES", "XAUUSD,XAUUSD.m,XAUUSDm,GOLD,GOLD.m").split(",") if c.strip()],
+    "BTCUSD": [c.strip() for c in os.getenv("MT5_BTCUSD_CANDIDATES", "BTCUSD,BTCUSD.m,BTCUSDm,BTCUSDT").split(",") if c.strip()],
+}
+MT5_POLL_SECONDS = int(os.getenv("MT5_POLL_SECONDS", "60"))
+
 
 # --- Backtest -----------------------------------------------------------
 # NOTE: initial_balance is in CENTS (a "cent account" style setup) — 1000

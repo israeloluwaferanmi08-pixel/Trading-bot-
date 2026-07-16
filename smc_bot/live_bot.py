@@ -110,6 +110,23 @@ def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
     raise last_err if last_err else RuntimeError(f"No data source succeeded for {sym_cfg.name}")
 
 
+def _signal_progress(sig, df_ltf) -> float:
+    """
+    Fraction of the entry->TP1 distance already covered by the close of
+    the bar the signal formed on. 0 (or negative, clamped to 0) if price
+    closed at/against entry. Used to catch signals where most of the move
+    a zone was supposed to catch already happened before the bar even
+    closed and the alert could be sent — see config.STALE_SIGNAL_MAX_PROGRESS.
+    """
+    close = df_ltf["close"].iloc[sig.bar_idx]
+    tp1 = sig.take_profits[0]
+    total = (tp1 - sig.entry) if sig.direction == "BUY" else (sig.entry - tp1)
+    if total <= 0:
+        return 0.0
+    moved = (close - sig.entry) if sig.direction == "BUY" else (sig.entry - close)
+    return max(0.0, moved / total)
+
+
 def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30, enabled_symbols=None) -> dict:
     signals_today = 0
     cooldown_seconds = max(0, notify_cooldown_minutes) * 60
@@ -168,6 +185,33 @@ def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30, en
                 confluence = confluence_for(sig)
                 session = session_for(sig.bar_time)
                 already.add((sig.zone.formed_idx, sig.zone.kind))
+
+                # Stale/chased check: a signal only exists once its bar has
+                # closed and this poll cycle picked it up — if price already
+                # ran most of the way to TP1 within that same bar, sending
+                # the alert now means chasing an entry near the top of the
+                # move rather than catching the zone. See
+                # config.STALE_SIGNAL_MAX_PROGRESS and alerts.stale_chased_message.
+                progress = _signal_progress(sig, df_ltf)
+                if progress > config.STALE_SIGNAL_MAX_PROGRESS:
+                    stale_key = f"{symbol}:stale"
+                    last_stale_sent = cooldown_state.get(stale_key, 0)
+                    stale_suppressed = (now_ts - last_stale_sent) < cooldown_seconds
+
+                    signal_id = store.log_signal(
+                        sig, confluence, session, notified=not stale_suppressed, status="stale_chased",
+                    )
+                    logger.info(
+                        "Signal #%s (%s) skipped — already %.0f%% of the way to TP1 by bar close (limit %.0f%%)%s",
+                        signal_id, sig.symbol, progress * 100, config.STALE_SIGNAL_MAX_PROGRESS * 100,
+                        " (notification suppressed)" if stale_suppressed else "",
+                    )
+                    if not stale_suppressed:
+                        notifier.send_message(
+                            alerts.stale_chased_message(sig, progress, config.STALE_SIGNAL_MAX_PROGRESS)
+                        )
+                        cooldown_state[stale_key] = now_ts
+                    continue
 
                 if open_count >= max_open:
                     # Skipped, not suppressed: doesn't occupy a slot, isn't

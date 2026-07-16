@@ -20,10 +20,27 @@ Trade management model (kept simple and transparent):
 """
 from dataclasses import dataclass, field
 from typing import List, Optional
+import numpy as np
 import pandas as pd
 
 from .signals import SignalEngine, Signal
 from .zones import precompute_indicators
+
+
+def _confirmed_swing_series(is_swing: np.ndarray, price_at_swing: np.ndarray, right: int) -> np.ndarray:
+    """
+    Forward-filled array where index i holds the price of the most recent
+    swing point *confirmed as of the close of bar i* (i.e. a swing pivot at
+    index j only appears starting at index j+right, per swing_points()'s
+    look-ahead contract). NaN before the first confirmed swing.
+    """
+    n = len(is_swing)
+    out = np.full(n, np.nan)
+    idxs = np.where(is_swing)[0]
+    confirm_at = idxs + right
+    valid = confirm_at < n
+    out[confirm_at[valid]] = price_at_swing[idxs[valid]]
+    return pd.Series(out).ffill().values
 
 
 @dataclass
@@ -42,6 +59,7 @@ class Trade:
     close_idx: Optional[int] = None
     close_time: Optional[object] = None
     initial_risk: float = 0.0
+    trail_active: bool = False
 
     def __post_init__(self):
         if not self.tp_hits:
@@ -100,13 +118,26 @@ class Backtester:
             atr_period=self.strategy_params["atr_period"],
         )
 
+        trail_enabled = bool(self.strategy_params.get("trail_stop_after_tp1", False))
+        confirmed_swing_low = confirmed_swing_high = None
+        if trail_enabled:
+            confirmed_swing_low = _confirmed_swing_series(
+                precomputed["is_low"], precomputed["low"], self.strategy_params["swing_right"]
+            )
+            confirmed_swing_high = _confirmed_swing_series(
+                precomputed["is_high"], precomputed["high"], self.strategy_params["swing_right"]
+            )
+
         for i in range(warmup, n):
             bar = df_ltf.iloc[i]
 
             # ---- 1. manage open trades on this bar (fills tr.realized_r / tr.closed) ----
             still_open = []
             for tr in open_trades:
-                self._update_trade(tr, bar)
+                self._update_trade(
+                    tr, bar, i, precomputed["atr"],
+                    confirmed_swing_low, confirmed_swing_high,
+                )
                 if not tr.closed:
                     still_open.append(tr)
                 else:
@@ -196,8 +227,31 @@ class Backtester:
             "initial_balance": self.bp["initial_balance"],
         }
 
-    def _update_trade(self, tr: Trade, bar) -> None:
+    def _update_trade(self, tr: Trade, bar, i: int, atr_arr, confirmed_swing_low, confirmed_swing_high) -> None:
         low, high = bar["low"], bar["high"]
+
+        # Trail behind the most recently confirmed swing, but only once
+        # TP1 has already moved the stop to breakeven, and only using
+        # swing info confirmed as of the PREVIOUS bar's close (i-1) — the
+        # same one-bar lag new signal entries already respect, so a swing
+        # that bar i itself helped confirm can't be used to judge bar i's
+        # own high/low in the same step. Only ever tightens the stop.
+        if tr.trail_active and confirmed_swing_low is not None and i > 0:
+            sl_buf = self.strategy_params.get("sl_buffer_atr", 0.0)
+            a = atr_arr[i - 1]
+            buf = sl_buf * a if not pd.isna(a) else 0.0
+            if tr.direction == "BUY":
+                piv = confirmed_swing_low[i - 1]
+                if not pd.isna(piv):
+                    candidate = piv - buf
+                    if candidate > tr.stop_loss:
+                        tr.stop_loss = candidate
+            else:
+                piv = confirmed_swing_high[i - 1]
+                if not pd.isna(piv):
+                    candidate = piv + buf
+                    if candidate < tr.stop_loss:
+                        tr.stop_loss = candidate
 
         if tr.direction == "BUY":
             hit_sl = low <= tr.stop_loss
@@ -225,6 +279,7 @@ class Backtester:
         # move stop to breakeven after first TP (simple, conservative trade mgmt)
         if tp_index == 0:
             tr.stop_loss = tr.entry
+            tr.trail_active = True
 
         if tr.remaining_fraction <= 1e-9:
             tr.closed = True

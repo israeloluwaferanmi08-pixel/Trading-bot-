@@ -194,6 +194,8 @@ class SignalEngine:
         signals: List[Signal] = []
 
         for z in live_zones:
+            zone_height = z.top - z.bottom
+            depth = self.p.get("entry_depth_pct", 0.0)
             # only fire the moment price first taps into the zone this bar
             touched = bar["low"] <= z.top and bar["high"] >= z.bottom
             if not touched:
@@ -202,9 +204,11 @@ class SignalEngine:
             position = dealing_range.zone_position(z)
 
             if z.kind == "demand" and position == "discount" and trend == "bullish":
+                entry = z.top - depth * zone_height
+                if bar["low"] > entry:
+                    continue  # tapped the zone but hasn't retraced to the configured entry depth yet
                 if not structure_ok("bullish"):
                     continue  # LTF structure vetoes this direction (see structure_mode)
-                entry = z.top
                 stop_loss = z.bottom - self.p["sl_buffer_atr"] * local_atr
                 risk = entry - stop_loss
                 if risk <= 0:
@@ -228,9 +232,11 @@ class SignalEngine:
                 )
 
             elif z.kind == "supply" and position == "premium" and trend == "bearish":
+                entry = z.bottom + depth * zone_height
+                if bar["high"] < entry:
+                    continue  # tapped the zone but hasn't retraced to the configured entry depth yet
                 if not structure_ok("bearish"):
                     continue  # LTF structure vetoes this direction (see structure_mode)
-                entry = z.bottom
                 stop_loss = z.top + self.p["sl_buffer_atr"] * local_atr
                 risk = stop_loss - entry
                 if risk <= 0:
