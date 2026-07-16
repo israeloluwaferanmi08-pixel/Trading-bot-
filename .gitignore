@@ -1,0 +1,17 @@
+# Secrets -- never commit these
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Bot runtime data (local SQLite store, logs)
+*.db
+*.sqlite3
+*.log
+
+# Optional: skip sample data if you don't need it in the repo
+# data/
