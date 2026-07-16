@@ -141,6 +141,7 @@ class MT5Executor:
             take_profits=tps, volume=half * 2, strategy_params=strategy_params,
         )
 
+        failed_legs = []
         for leg_name, tp in (("tp1", tps[0]), ("tp2", tps[1])):
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -162,13 +163,31 @@ class MT5Executor:
                     "order_send failed for signal #%s (%s leg): retcode=%s comment=%s",
                     signal_id, leg_name, getattr(result, "retcode", None), getattr(result, "comment", None),
                 )
-                self._close_ticket_if_open(pos, leg_name)
+                failed_legs.append(leg_name)
                 continue
             ticket = result.order
             if leg_name == "tp1":
                 pos.ticket_tp1 = ticket
             else:
                 pos.ticket_tp2 = ticket
+
+        # Partial failure: one leg opened, the other didn't. A lone half
+        # position doesn't match the risk size this trade was supposed to
+        # carry, and the rest of MT5Executor (manage_positions, trailing,
+        # breakeven-on-TP1) assumes both legs exist. Rather than leave that
+        # orphan running unmanaged, close whichever leg DID open and treat
+        # the whole signal as not-entered.
+        if failed_legs and (pos.ticket_tp1 is not None or pos.ticket_tp2 is not None):
+            opened_ticket = pos.ticket_tp1 if pos.ticket_tp1 is not None else pos.ticket_tp2
+            opened_leg = "tp1" if pos.ticket_tp1 is not None else "tp2"
+            logger.error(
+                "Signal #%s: %s leg failed but %s already opened (ticket=%s) -- "
+                "closing it to avoid an orphaned half-position.",
+                signal_id, failed_legs, opened_leg, opened_ticket,
+            )
+            self._close_ticket_if_open(broker_symbol, opened_ticket, order_type, half)
+            pos.ticket_tp1 = None
+            pos.ticket_tp2 = None
 
         if pos.ticket_tp1 is None and pos.ticket_tp2 is None:
             return None
@@ -180,10 +199,56 @@ class MT5Executor:
         )
         return pos
 
-    def _close_ticket_if_open(self, pos: ManagedPosition, leg_name: str) -> None:
-        # best-effort cleanup if one leg of the pair failed to open --
-        # avoid a half-orphaned position with only one TP leg live
-        pass  # left as a hook; MT5 mock/paper testing should verify this path
+    def _close_ticket_if_open(self, broker_symbol: str, ticket: int, opened_order_type, volume: float) -> None:
+        """
+        Best-effort cleanup: send an opposing market order against `ticket`
+        to flatten a leg that opened successfully when its sibling leg (TP1
+        or TP2) failed. Logs but does not raise on failure -- the caller
+        already treats the signal as not-entered either way, and raising
+        here would just crash the poll cycle over a cleanup step. If this
+        fails, the position is still open on the broker and needs manual
+        intervention; that's surfaced clearly in the log/error alert.
+        """
+        mt5 = _mt5()
+        mt5_pos = self._find_open_mt5_position(ticket)
+        if mt5_pos is None:
+            # Already closed/never actually opened server-side -- nothing to do.
+            return
+
+        tick = mt5.symbol_info_tick(broker_symbol)
+        if tick is None:
+            logger.error(
+                "Could not fetch tick for %s to close orphaned ticket %s -- "
+                "position is still OPEN on the broker, close it manually.",
+                broker_symbol, ticket,
+            )
+            return
+
+        closing_type = mt5.ORDER_TYPE_SELL if opened_order_type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        closing_price = tick.bid if closing_type == mt5.ORDER_TYPE_SELL else tick.ask
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": broker_symbol,
+            "volume": volume,
+            "type": closing_type,
+            "position": ticket,
+            "price": closing_price,
+            "deviation": 20,
+            "magic": self.magic_number,
+            "comment": "smc_bot:orphan_leg_cleanup",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(request)
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(
+                "Failed to close orphaned ticket %s on %s: retcode=%s comment=%s -- "
+                "position is still OPEN on the broker, close it manually.",
+                ticket, broker_symbol, getattr(result, "retcode", None), getattr(result, "comment", None),
+            )
+        else:
+            logger.info("Closed orphaned leg ticket %s on %s (cleanup after partial order failure).", ticket, broker_symbol)
 
     def _find_open_mt5_position(self, ticket: int):
         mt5 = _mt5()
