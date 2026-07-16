@@ -1,1 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel-2:#0e141c; --line:#1f2733;
+    --text:#e6edf3; --muted:#8b98a8; --accent:#5fd0a8; --accent-dim:#2c6b57;
+    --danger:#e0667a; --warn:#e0b95f; --buy:#5fd0a8; --sell:#e0667a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;}
+  header h1{font-size:16px;margin:0;font-weight:600;}
+  header .meta{color:var(--muted);font-size:12px;}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+  .dot.ok{background:var(--accent);} .dot.bad{background:var(--danger);}
+  main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
+  .card .value{font-size:22px;font-weight:600;}
+  .card .value.small{font-size:15px;font-weight:500;}
+  section{margin-bottom:28px;}
+  section h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+             margin:0 0 12px;font-weight:600;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+  button{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+         padding:8px 14px;font-size:13px;cursor:pointer;}
+  button:hover{border-color:var(--accent);}
+  button.primary{background:var(--accent);color:#04140f;border-color:var(--accent);font-weight:600;}
+  button.danger{border-color:var(--danger);color:var(--danger);}
+  button.symbol.disabled{opacity:.45;}
+  input.interval{width:70px;padding:8px;border-radius:8px;border:1px solid var(--line);
+                 background:var(--panel-2);color:var(--text);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;
+     letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  .tag{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
+  .tag.buy{background:rgba(95,208,168,.15);color:var(--buy);}
+  .tag.sell{background:rgba(224,102,122,.15);color:var(--sell);}
+  .tag.open{background:rgba(224,185,95,.15);color:var(--warn);}
+  .tag.tp_hit{background:rgba(95,208,168,.15);color:var(--buy);}
+  .tag.sl_hit{background:rgba(224,102,122,.15);color:var(--sell);}
+  .tag.expired{background:rgba(139,152,168,.15);color:var(--muted);}
+  .empty{color:var(--muted);font-style:italic;padding:12px 0;}
+  canvas{max-height:260px;}
+  .split{display:grid;grid-template-columns:2fr 1fr;gap:16px;}
+  @media (max-width:800px){.split{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
 
+<header>
+  <h1>🌲 SMC Bot Dashboard <span class="meta">v{{ version }}</span></h1>
+  <div class="meta"><span id="conn-dot" class="dot ok"></span><span id="conn-text">connecting…</span>
+    <a href="/logout" style="color:var(--muted);margin-left:14px;">Sign out</a>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="grid" id="status-cards"></div>
+  </section>
+
+  <section>
+    <h2>Controls</h2>
+    <div class="panel controls">
+      <button id="btn-pause">⏸ Pause scanning</button>
+      <button id="btn-resume">▶ Resume scanning</button>
+      <button id="btn-scan-now" class="primary">⚡ Scan now</button>
+      <span style="color:var(--muted);margin-left:6px;">Poll interval:</span>
+      <input type="number" id="interval-input" class="interval" min="5">
+      <button id="btn-set-interval">Set</button>
+      <div id="symbol-toggles" style="display:flex;gap:8px;margin-left:auto;"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Performance</h2>
+    <div class="split">
+      <div class="panel">
+        <canvas id="equity-chart"></canvas>
+      </div>
+      <div class="panel" id="per-symbol-stats"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent signals</h2>
+    <div class="panel">
+      <table id="signals-table">
+        <thead><tr><th>#</th><th>Symbol</th><th>Dir</th><th>Entry</th><th>Status</th><th>R</th><th>Session</th><th>Sent</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent errors</h2>
+    <div class="panel">
+      <table id="errors-table">
+        <thead><tr><th>Time</th><th>Module</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const params = new URLSearchParams(location.search);
+const bootToken = params.get('token') || '';
+
+// The session cookie was already set by the server on this same page load
+// (it's in the Set-Cookie header of the response that rendered this HTML),
+// so the token doesn't need to be repeated on every API call from here on —
+// and it shouldn't sit in the address bar / history / any Referer longer
+// than it has to.
+if (bootToken) {
+  history.replaceState({}, '', location.pathname);
+}
+
+function csrfToken() {
+  const m = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const headers = {'Content-Type': 'application/json', ...(opts.headers || {})};
+  if (method !== 'GET') headers['X-CSRF-Token'] = csrfToken();
+  const resp = await fetch(path, { ...opts, method, headers, credentials: 'same-origin' });
+  if (resp.status === 401) { location.href = '/login'; throw new Error('unauthorized'); }
+  if (resp.status === 403) { alert('Session check failed — reloading.'); location.reload(); throw new Error('csrf'); }
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json();
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+
+let equityChart = null;
+
+async function renderStatus() {
+  const s = await api('/api/status');
+  document.getElementById('conn-dot').className = 'dot ' + (s.healthy ? 'ok' : 'bad');
+  document.getElementById('conn-text').textContent = s.healthy ? 'healthy' : 'unhealthy — check errors';
+  document.getElementById('interval-input').value = s.poll_seconds;
+
+  const cards = [
+    ['Scanning', s.scanning ? 'Active ✅' : 'Paused ⏸', true],
+    ['Uptime', s.uptime],
+    ['Last scan', s.last_scan],
+    ['Markets scanned', s.markets_scanned],
+    ['Memory', s.memory_mb + ' MB'],
+    ['Poll interval', s.poll_seconds + 's'],
+    ['Restarts', s.restart_count],
+    ['Disabled markets', s.symbols.filter(x => !s.enabled_symbols.includes(x)).join(', ') || 'none'],
+  ];
+  document.getElementById('status-cards').innerHTML = cards.map(([label, value]) =>
+    `<div class="card"><div class="label">${label}</div><div class="value small">${value}</div></div>`
+  ).join('');
+
+  const toggles = document.getElementById('symbol-toggles');
+  toggles.innerHTML = '';
+  s.symbols.forEach(sym => {
+    const enabled = s.enabled_symbols.includes(sym);
+    const btn = document.createElement('button');
+    btn.className = 'symbol' + (enabled ? '' : ' disabled');
+    btn.textContent = (enabled ? '● ' : '○ ') + sym;
+    btn.onclick = () => api(`/api/symbol/${sym}/${enabled ? 'disable' : 'enable'}`, {method:'POST'}).then(refreshAll);
+    toggles.appendChild(btn);
+  });
+}
+
+async function renderStats() {
+  const {overall, per_symbol} = await api('/api/stats');
+  const box = document.getElementById('per-symbol-stats');
+  if (!overall.closed_trades) {
+    box.innerHTML = '<div class="empty">No closed trades yet.</div>';
+    return;
+  }
+  let html = `
+    <div class="label" style="margin-bottom:10px;">Overall</div>
+    <table>
+      <tr><td>Closed trades</td><td><b>${overall.closed_trades}</b></td></tr>
+      <tr><td>Win rate</td><td><b>${overall.win_rate_pct}%</b></td></tr>
+      <tr><td>Avg R</td><td><b>${overall.avg_r}</b></td></tr>
+      <tr><td>Best symbol</td><td>${overall.best_symbol ?? '—'}</td></tr>
+      <tr><td>Worst symbol</td><td>${overall.worst_symbol ?? '—'}</td></tr>
+      <tr><td>Best session</td><td>${overall.best_session ?? '—'}</td></tr>
+      <tr><td>Worst session</td><td>${overall.worst_session ?? '—'}</td></tr>
+    </table>
+    <div class="label" style="margin:14px 0 10px;">Per symbol</div>
+    <table><thead><tr><th>Symbol</th><th>Trades</th><th>WR</th><th>Avg R</th></tr></thead><tbody>`;
+  for (const [sym, st] of Object.entries(per_symbol)) {
+    html += `<tr><td>${sym}</td><td>${st.closed_trades || 0}</td><td>${st.win_rate_pct ?? '—'}${st.win_rate_pct != null ? '%' : ''}</td><td>${st.avg_r ?? '—'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+async function renderEquity() {
+  const points = await api('/api/equity');
+  const ctx = document.getElementById('equity-chart').getContext('2d');
+  const labels = points.map(p => fmtDate(p.closed_at));
+  const data = points.map(p => p.cumulative_r);
+  if (equityChart) { equityChart.data.labels = labels; equityChart.data.datasets[0].data = data; equityChart.update(); return; }
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Cumulative R', data, borderColor: '#5fd0a8',
+      backgroundColor: 'rgba(95,208,168,.1)', fill: true, tension: .2, pointRadius: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b98a8', maxTicksLimit: 8 }, grid: { color: '#1f2733' } },
+        y: { ticks: { color: '#8b98a8' }, grid: { color: '#1f2733' } },
+      },
+    },
+  });
+}
+
+async function renderSignals() {
+  const rows = await api('/api/signals?limit=30');
+  const tbody = document.querySelector('#signals-table tbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No signals logged yet.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>#${r.id}</td>
+      <td>${r.symbol}</td>
+      <td><span class="tag ${r.direction === 'BUY' ? 'buy' : 'sell'}">${r.direction}</span></td>
+      <td>${r.entry}</td>
+      <td><span class="tag ${r.status}">${r.status}</span></td>
+      <td>${r.outcome_r ?? '—'}</td>
+      <td>${r.session ?? '—'}</td>
+      <td>${fmtDate(r.sent_at)}</td>
+    </tr>`).join('');
+}
+
+async function renderErrors() {
+  const rows = await api('/api/errors?limit=20');
+  const tbody = document.querySelector('#errors-table tbody');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">No errors logged. 🎉</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `<tr><td>${fmtDate(r.occurred_at)}</td><td>${r.module}</td><td>${r.reason}</td></tr>`).join('');
+}
+
+async function refreshAll() {
+  try {
+    await Promise.all([renderStatus(), renderStats(), renderEquity(), renderSignals(), renderErrors()]);
+  } catch (e) { console.error(e); }
+}
+
+document.getElementById('btn-pause').onclick = () => api('/api/scan/pause', {method:'POST'}).then(refreshAll);
+document.getElementById('btn-resume').onclick = () => api('/api/scan/resume', {method:'POST'}).then(refreshAll);
+document.getElementById('btn-scan-now').onclick = () => api('/api/scan-now', {method:'POST'}).then(refreshAll);
+document.getElementById('btn-set-interval').onclick = () => {
+  const seconds = parseInt(document.getElementById('interval-input').value, 10);
+  api('/api/interval', {method:'POST', body: JSON.stringify({seconds})}).then(refreshAll);
+};
+
+refreshAll();
+setInterval(refreshAll, 15000);
+</script>
+</body>
+</html>
