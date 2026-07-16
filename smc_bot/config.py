@@ -220,6 +220,20 @@ HEARTBEAT_MINUTES = int(os.getenv("HEARTBEAT_MINUTES", "60"))
 WATCHDOG_MINUTES = int(os.getenv("WATCHDOG_MINUTES", "20"))
 TELEGRAM_MIN_GAP_SECONDS = float(os.getenv("TELEGRAM_MIN_GAP_SECONDS", "1.2"))
 
+# Every backtest number in this repo (see analysis/PER_SYMBOL_CONFIG_NOTES.md)
+# assumes at most one open position per symbol at a time — Backtester.run()
+# defaults to max_open_trades=1 and never opens a new trade until the
+# previous one has closed. Historically live_bot.py didn't enforce this at
+# all: it sent every signal that cleared the strategy rules regardless of
+# whether a prior signal on that symbol was still open, which is a
+# meaningfully different (and in backtesting, notably riskier — deeper
+# drawdowns from stacked concurrent risk) trading pattern than what was
+# actually tested. This makes live match backtest: set to 1 to mirror the
+# default backtest assumption exactly, or raise it if you deliberately want
+# to test/run a concurrent-position variant (do that with eyes open — see
+# the notes file for how much worse drawdown gets when this is uncapped).
+LIVE_MAX_OPEN_PER_SYMBOL = int(os.getenv("LIVE_MAX_OPEN_PER_SYMBOL", "1"))
+
 # --- TwelveData (live price data for symbols/timeframes ccxt can't serve) --
 # Up to 3 free-tier keys, rotated automatically: when one gets rate-limited
 # (HTTP 429 or a TwelveData "code":429 body), it's put on cooldown and the

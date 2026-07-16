@@ -64,6 +64,28 @@ def watchdog_message(minutes_stale: float, watchdog_limit: int) -> str:
     )
 
 
+def skipped_concurrency_message(sig, open_count: int, max_open: int) -> str:
+    """
+    A signal cleared the strategy's own rules but wasn't sent as an
+    actionable alert because {open_count} position(s) are already open on
+    this symbol and LIVE_MAX_OPEN_PER_SYMBOL={max_open} — every backtest
+    number in this repo assumes at most one open trade per symbol at a
+    time, so taking this on top of an existing position would be trading
+    a materially riskier (untested, deeper-drawdown) variant of the
+    strategy. Logged with status='skipped_concurrency' for visibility —
+    it does not occupy an open-position slot and its outcome isn't tracked,
+    same as a signal the backtester itself would have skipped.
+    """
+    arrow = "🟢 BUY" if sig.direction == "BUY" else "🔴 SELL"
+    return (
+        f"⚠️ Signal skipped — {open_count}/{max_open} positions already open on {sig.symbol}\n"
+        f"{arrow} {sig.symbol} @ {sig.entry:.2f} would have been sent, "
+        "but taking it now means running MORE than one concurrent position "
+        "on this symbol — a riskier pattern than what was backtested.\n"
+        "Not logged as an open trade; not counted toward your performance stats."
+    )
+
+
 def outcome_message(signal_id: int, symbol: str, direction: str, status: str, outcome_r: float) -> str:
     icon = {"tp_hit": "🟢", "sl_hit": "🔴", "expired": "⚪"}.get(status, "⏳")
     label = {"tp_hit": "TP hit", "sl_hit": "SL hit", "expired": "Expired"}.get(status, status)

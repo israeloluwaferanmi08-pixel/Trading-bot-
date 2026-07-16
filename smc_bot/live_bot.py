@@ -145,18 +145,54 @@ def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30, en
 
             signals = engine.evaluate(df_ltf, df_htf, already_signaled_zone_ids=already)
 
+            # Every backtested number assumes at most LIVE_MAX_OPEN_PER_SYMBOL
+            # open positions on this symbol at once (backtester default: 1).
+            # Recomputed fresh each cycle from the store, then tracked locally
+            # so two signals arriving in the same cycle don't both slip
+            # through — see config.LIVE_MAX_OPEN_PER_SYMBOL and
+            # alerts.skipped_concurrency_message for the full rationale.
+            open_count = len(store.open_signals(symbol))
+            max_open = config.LIVE_MAX_OPEN_PER_SYMBOL
+
             for sig in signals:
                 confluence = confluence_for(sig)
                 session = session_for(sig.bar_time)
+                already.add((sig.zone.formed_idx, sig.zone.kind))
+
+                if open_count >= max_open:
+                    # Skipped, not suppressed: doesn't occupy a slot, isn't
+                    # tracked toward outcome stats — same as the backtester
+                    # itself would have done with this signal. Always
+                    # logged to the store for full visibility (dashboard/
+                    # history), but the Telegram ping itself rides the same
+                    # per-symbol notification cooldown as real signals so a
+                    # choppy stretch that keeps re-triggering the zone
+                    # detector while a position is open doesn't spam the
+                    # chat — one heads-up per cooldown window is enough to
+                    # know it's happening.
+                    skip_key = f"{symbol}:skipped"
+                    last_skip_sent = cooldown_state.get(skip_key, 0)
+                    skip_suppressed = (now_ts - last_skip_sent) < cooldown_seconds
+
+                    signal_id = store.log_signal(
+                        sig, confluence, session, notified=not skip_suppressed, status="skipped_concurrency",
+                    )
+                    logger.info(
+                        "Signal #%s (%s) skipped — %d/%d positions already open%s",
+                        signal_id, sig.symbol, open_count, max_open,
+                        " (notification suppressed)" if skip_suppressed else "",
+                    )
+                    if not skip_suppressed:
+                        notifier.send_message(alerts.skipped_concurrency_message(sig, open_count, max_open))
+                        cooldown_state[skip_key] = now_ts
+                    continue
 
                 cooldown_key = f"{symbol}:{sig.direction}"
                 last_sent = cooldown_state.get(cooldown_key, 0)
                 suppressed = (now_ts - last_sent) < cooldown_seconds
 
                 signal_id = store.log_signal(sig, confluence, session, notified=not suppressed)
-                # Zone is marked as handled either way — a suppressed signal
-                # still shouldn't be re-evaluated on the next poll.
-                already.add((sig.zone.formed_idx, sig.zone.kind))
+                open_count += 1  # this cycle's next signal (if any) sees it as open too
 
                 if suppressed:
                     logger.info(

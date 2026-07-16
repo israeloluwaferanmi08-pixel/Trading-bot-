@@ -61,7 +61,7 @@ class Store:
                     confluence TEXT,
                     bar_time TEXT,
                     sent_at TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'open',   -- open | tp_hit | sl_hit | expired
+                    status TEXT NOT NULL DEFAULT 'open',   -- open | tp_hit | sl_hit | expired | skipped_concurrency
                     outcome_r REAL,
                     closed_at TEXT,
                     notified INTEGER NOT NULL DEFAULT 1    -- 0 if suppressed by the notification cooldown
@@ -124,7 +124,7 @@ class Store:
             return new_val
 
     # --- signals ----------------------------------------------------------
-    def log_signal(self, sig, confluence: list, session: str, notified: bool = True) -> int:
+    def log_signal(self, sig, confluence: list, session: str, notified: bool = True, status: str = "open") -> int:
         with _lock, self.conn:
             cur = self.conn.execute(
                 """
@@ -132,7 +132,7 @@ class Store:
                 (symbol, direction, entry, stop_loss, take_profits, zone_kind,
                  zone_top, zone_bottom, range_position, htf_trend, session,
                  confluence, bar_time, sent_at, status, notified)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     sig.symbol,
@@ -149,6 +149,7 @@ class Store:
                     json.dumps(confluence),
                     str(sig.bar_time),
                     datetime.now(timezone.utc).isoformat(),
+                    status,
                     1 if notified else 0,
                 ),
             )
