@@ -190,6 +190,27 @@ STATE_FILE = os.getenv("STATE_FILE", "sent_signals.json")
 # but is NOT sent to Telegram. Change live with /setcooldown <minutes>.
 NOTIFICATION_COOLDOWN_MINUTES = int(os.getenv("NOTIFICATION_COOLDOWN_MINUTES", "30"))
 
+# --- Web dashboard -----------------------------------------------------
+# Read-only-by-default operational dashboard (#1 from the roadmap gap
+# list) — runs in a background thread inside this same process, backed by
+# the same SQLite Store. Does not touch signal generation or STRATEGY.
+DASHBOARD_ENABLED = os.getenv("DASHBOARD_ENABLED", "true").lower() in ("1", "true", "yes")
+# Railway sets $PORT automatically for services with public networking
+# enabled; DASHBOARD_PORT is a manual override for local runs.
+DASHBOARD_PORT = int(os.getenv("PORT", os.getenv("DASHBOARD_PORT", "8080")))
+# If unset, a random token is generated at startup and sent to your
+# Telegram admin chat (and logged) — see dashboard.py. Set this explicitly
+# if you want a stable URL across restarts.
+DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
+# How long a dashboard login stays valid before you need to re-enter the
+# token. A stolen/leaked session cookie is only useful for this long.
+DASHBOARD_SESSION_HOURS = int(os.getenv("DASHBOARD_SESSION_HOURS", "12"))
+# Railway serves the app over HTTPS at the edge (TLS terminates before
+# traffic reaches this process), so the session/CSRF cookies are marked
+# Secure there. Force it on explicitly once you've confirmed HTTPS is in
+# front of you; leave off for local http://localhost testing.
+DASHBOARD_FORCE_SECURE_COOKIES = os.getenv("DASHBOARD_FORCE_SECURE_COOKIES", "true" if os.getenv("RAILWAY_ENVIRONMENT") else "false").lower() in ("1", "true", "yes")
+
 # --- Operational layer (does NOT affect strategy logic) -----------------
 # All of these are ops/monitoring knobs only — signal generation itself is
 # governed entirely by STRATEGY above and is untouched by any of this.

@@ -24,7 +24,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import alerts, config, health, outcomes, reports, twelvedata_feed, watchdog
+from . import alerts, config, dashboard, health, outcomes, reports, twelvedata_feed, watchdog
 from .commands import BotState, start_command_listener
 from .data_feed import get_ccxt_data
 from .notify_queue import QueuedNotifier
@@ -110,7 +110,7 @@ def fetch_symbol_data(sym_cfg, timeframe: str, n_bars: int = 500):
     raise last_err if last_err else RuntimeError(f"No data source succeeded for {sym_cfg.name}")
 
 
-def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30) -> dict:
+def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30, enabled_symbols=None) -> dict:
     signals_today = 0
     cooldown_seconds = max(0, notify_cooldown_minutes) * 60
     # `_cooldown` is a reserved key inside the same state dict/file that
@@ -121,6 +121,8 @@ def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30) ->
     cooldown_state = state.setdefault("_cooldown", {})
     now_ts = time.time()
     for symbol, sym_cfg in config.SYMBOLS.items():
+        if enabled_symbols is not None and symbol not in enabled_symbols:
+            continue
         try:
             df_ltf = fetch_symbol_data(sym_cfg, sym_cfg.ltf, n_bars=500)
             df_htf = fetch_symbol_data(sym_cfg, sym_cfg.htf, n_bars=500)
@@ -227,6 +229,9 @@ def main():
         start_command_listener(config.TELEGRAM_BOT_TOKEN, config.ADMIN_CHAT_ID, bot_state, store, notifier)
     watchdog.start_watchdog(notifier, config.WATCHDOG_MINUTES)
 
+    if config.DASHBOARD_ENABLED:
+        dashboard.start_dashboard(store, bot_state, notifier, config)
+
     def _graceful_shutdown(signum, frame):
         logger.info("Received signal %s — shutting down gracefully.", signum)
         try:
@@ -256,7 +261,11 @@ def main():
 
         if bot_state.scanning.is_set():
             try:
-                state = run_once(notifier, store, state, notify_cooldown_minutes=bot_state.notify_cooldown_minutes)
+                state = run_once(
+                    notifier, store, state,
+                    notify_cooldown_minutes=bot_state.notify_cooldown_minutes,
+                    enabled_symbols=bot_state.enabled_symbols,
+                )
                 save_state(config.STATE_FILE, state)
             except Exception:
                 logger.exception("Unexpected error in main loop; continuing.")
@@ -276,7 +285,12 @@ def main():
         except Exception:
             logger.exception("Report scheduling failed")
 
-        time.sleep(bot_state.poll_seconds)
+        sleep_until = time.time() + bot_state.poll_seconds
+        while time.time() < sleep_until:
+            if bot_state.force_scan.is_set():
+                bot_state.force_scan.clear()
+                break
+            time.sleep(1)
 
 
 if __name__ == "__main__":

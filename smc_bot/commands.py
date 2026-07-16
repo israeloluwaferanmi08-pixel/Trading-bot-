@@ -41,6 +41,14 @@ class BotState:
         self.version = version
         self.restart_requested = threading.Event()
         self.notify_cooldown_minutes = notify_cooldown_minutes
+        # Set by /scannow or the dashboard's "Scan Now" button — the main
+        # loop's sleep checks this every second and breaks early instead of
+        # waiting out the full poll interval. Cleared once the scan starts.
+        self.force_scan = threading.Event()
+        # Symbols currently eligible to be scanned. Starts as "all
+        # configured symbols" — removing one here just skips it in
+        # run_once(), it doesn't touch config.SYMBOLS or STRATEGY.
+        self.enabled_symbols = set(symbols)
 
 
 def _handle_command(text: str, state: BotState, store, notifier) -> str:
@@ -49,6 +57,7 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
 
     if cmd == "/status":
         status = "Scanning ✅" if state.scanning.is_set() else "Paused ⏸"
+        disabled = [s for s in state.symbols if s not in state.enabled_symbols]
         return (
             f"Status: {status}\n"
             f"Uptime: {health.uptime_str()}\n"
@@ -56,7 +65,8 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
             f"Markets scanned: {health.markets_scanned()}\n"
             f"Memory: {health.memory_mb()} MB | CPU: {health.cpu_percent()}%\n"
             f"Poll interval: {state.poll_seconds}s\n"
-            f"Notification cooldown: {state.notify_cooldown_minutes}m per symbol+direction"
+            f"Notification cooldown: {state.notify_cooldown_minutes}m per symbol+direction\n"
+            f"Disabled markets: {', '.join(disabled) if disabled else 'none'}"
         )
     if cmd == "/stats":
         return alerts.performance_message(store.performance_stats())
@@ -84,6 +94,19 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
     if cmd == "/stopscan":
         state.scanning.clear()
         return "Scanning paused ⏸ (bot stays online, will keep responding to commands)"
+    if cmd == "/scannow":
+        state.force_scan.set()
+        return "Forcing an immediate scan cycle... ⏱"
+    if cmd == "/enable":
+        if not rest or rest[0].upper() not in state.symbols:
+            return f"Usage: /enable <symbol>  ({', '.join(state.symbols)})"
+        state.enabled_symbols.add(rest[0].upper())
+        return f"{rest[0].upper()} enabled ✅"
+    if cmd == "/disable":
+        if not rest or rest[0].upper() not in state.symbols:
+            return f"Usage: /disable <symbol>  ({', '.join(state.symbols)})"
+        state.enabled_symbols.discard(rest[0].upper())
+        return f"{rest[0].upper()} disabled ⏸ (skipped in every scan cycle until re-enabled)"
     if cmd == "/setinterval":
         if not rest or not rest[0].isdigit():
             return "Usage: /setinterval <seconds>"
@@ -129,6 +152,9 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
             "/logs - last 10 errors\n"
             "/startscan - resume scanning\n"
             "/stopscan - pause scanning\n"
+            "/scannow - force an immediate scan cycle\n"
+            "/enable <symbol> - resume scanning one market\n"
+            "/disable <symbol> - skip one market without pausing everything\n"
             "/setinterval <sec> - change poll interval live\n"
             "/setcooldown <min> - change notification cooldown live\n"
             "/reload - re-apply saved operational settings\n"

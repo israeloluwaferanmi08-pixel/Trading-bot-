@@ -92,6 +92,15 @@ class Store:
                 )
                 """
             )
+            # Dashboard/reporting queries filter on these constantly (per-symbol
+            # stats, closed-trade equity curve) — cheap to add, keeps those
+            # queries index-backed instead of a full table scan as history grows.
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_signals_symbol_status ON signals(symbol, status)"
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_signals_status_closed_at ON signals(status, closed_at)"
+            )
 
     # --- meta key/value helpers -----------------------------------------
     def get_meta(self, key: str, default=None):
@@ -167,6 +176,22 @@ class Store:
                 (module, reason, datetime.now(timezone.utc).isoformat()),
             )
 
+    def recent_errors(self, limit: int = 50):
+        with _lock:
+            return self.conn.execute(
+                "SELECT * FROM errors ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+
+    def closed_signals_ordered(self):
+        """All closed (tp_hit/sl_hit) signals ordered by close time — used for
+        the dashboard's cumulative-R equity chart. Read-only, doesn't affect
+        strategy or live trading in any way."""
+        with _lock:
+            return self.conn.execute(
+                "SELECT * FROM signals WHERE status IN ('tp_hit','sl_hit') "
+                "ORDER BY closed_at ASC"
+            ).fetchall()
+
     # --- reporting queries --------------------------------------------------
     def signals_since(self, since_iso: str):
         with _lock:
@@ -186,6 +211,40 @@ class Store:
             return self.conn.execute(
                 "SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
+
+    def performance_stats_by_symbol(self, symbols):
+        """Same shape as performance_stats() but grouped by symbol, computed
+        in one indexed SQL query instead of fetching every row and filtering
+        in Python (the dashboard used to do the latter; it got slow once the
+        signals table had a few thousand rows)."""
+        with _lock:
+            rows = self.conn.execute(
+                """
+                SELECT symbol,
+                       COUNT(*) AS n,
+                       SUM(CASE WHEN status = 'tp_hit' THEN 1 ELSE 0 END) AS wins,
+                       AVG(outcome_r) AS avg_r,
+                       SUM(outcome_r) AS total_r
+                FROM signals
+                WHERE status IN ('tp_hit', 'sl_hit')
+                GROUP BY symbol
+                """
+            ).fetchall()
+        by_symbol = {r["symbol"]: r for r in rows}
+        result = {}
+        for sym in symbols:
+            r = by_symbol.get(sym)
+            if r is None or r["n"] == 0:
+                result[sym] = {"closed_trades": 0}
+                continue
+            result[sym] = {
+                "closed_trades": r["n"],
+                "wins": r["wins"] or 0,
+                "win_rate_pct": round(100 * (r["wins"] or 0) / r["n"], 1),
+                "avg_r": round(r["avg_r"] or 0, 2),
+                "total_r": round(r["total_r"] or 0, 2),
+            }
+        return result
 
     def performance_stats(self):
         """Win rate / avg R etc. over CLOSED signals only (tp_hit or sl_hit)."""
