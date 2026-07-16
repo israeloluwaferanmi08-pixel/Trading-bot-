@@ -234,6 +234,16 @@ TELEGRAM_MIN_GAP_SECONDS = float(os.getenv("TELEGRAM_MIN_GAP_SECONDS", "1.2"))
 # the notes file for how much worse drawdown gets when this is uncapped).
 LIVE_MAX_OPEN_PER_SYMBOL = int(os.getenv("LIVE_MAX_OPEN_PER_SYMBOL", "1"))
 
+# Drawdown alerting (see smc_bot/drawdown.py). Tracks a simulated running
+# balance per symbol using the exact same compounding formula as the
+# backtester (balance * risk_percent/100 per R, applied per closed trade),
+# so a live reading is directly comparable to a backtested max-drawdown
+# figure. Fires once per threshold crossed since the last new equity high.
+# Comma-separated percentages, ascending order recommended (not enforced).
+DRAWDOWN_ALERT_THRESHOLDS_PCT = [
+    float(x) for x in os.getenv("DRAWDOWN_ALERT_THRESHOLDS_PCT", "25,40,55").split(",") if x.strip()
+]
+
 # --- TwelveData (live price data for symbols/timeframes ccxt can't serve) --
 # Up to 3 free-tier keys, rotated automatically: when one gets rate-limited
 # (HTTP 429 or a TwelveData "code":429 body), it's put on cooldown and the

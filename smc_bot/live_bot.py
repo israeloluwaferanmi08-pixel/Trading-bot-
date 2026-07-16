@@ -24,7 +24,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from . import alerts, config, dashboard, health, outcomes, reports, twelvedata_feed, watchdog
+from . import alerts, config, dashboard, drawdown, health, outcomes, reports, twelvedata_feed, watchdog
 from .commands import BotState, start_command_listener
 from .data_feed import get_ccxt_data
 from .notify_queue import QueuedNotifier
@@ -138,6 +138,16 @@ def run_once(notifier, store, state: dict, notify_cooldown_minutes: int = 30, en
             outcomes.check_outcomes(store, notifier, symbol, df_ltf)
         except Exception:
             logger.exception("Outcome tracking failed for %s", symbol)
+
+        try:
+            drawdown.check_drawdown(
+                store, notifier, symbol,
+                initial_balance=config.BACKTEST["initial_balance"],
+                risk_percent=sym_cfg.risk_percent,
+                thresholds=config.DRAWDOWN_ALERT_THRESHOLDS_PCT,
+            )
+        except Exception:
+            logger.exception("Drawdown check failed for %s", symbol)
 
         try:
             engine = SignalEngine(symbol, config.get_strategy_params(symbol))

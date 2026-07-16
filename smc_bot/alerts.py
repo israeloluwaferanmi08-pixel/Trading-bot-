@@ -64,6 +64,25 @@ def watchdog_message(minutes_stale: float, watchdog_limit: int) -> str:
     )
 
 
+def drawdown_alert_message(symbol: str, dd_pct: float, threshold: float, balance: float, peak: float) -> str:
+    """
+    Fired by drawdown.check_drawdown() the first time a symbol's running
+    (simulated, compounding) balance crosses a new drawdown threshold since
+    its last equity high. This is a PORTFOLIO-level reading, not a single
+    trade — distinct from outcome_message()'s per-trade SL/TP notice. See
+    drawdown.py's module docstring for how "balance" is computed and why
+    it's directly comparable to backtested max-drawdown figures.
+    """
+    severity = "🟠" if threshold < 50 else "🔴"
+    return (
+        f"{severity} {symbol} drawdown alert — {dd_pct:.1f}% below peak\n"
+        f"Crossed the {threshold:.0f}% threshold.\n"
+        f"Peak: {peak:,.2f} -> Current: {balance:,.2f}\n"
+        "This tracks cumulative account balance, not any single trade — "
+        "check /stats or the dashboard for the trades behind it."
+    )
+
+
 def skipped_concurrency_message(sig, open_count: int, max_open: int) -> str:
     """
     A signal cleared the strategy's own rules but wasn't sent as an
