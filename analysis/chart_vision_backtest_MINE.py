@@ -169,6 +169,9 @@ def main():
     ap.add_argument("--samples", type=int, default=30, help="Number of test windows")
     ap.add_argument("--window", type=int, default=100, help="Bars of history shown per chart")
     ap.add_argument("--lookahead", type=int, default=40, help="Bars to check forward for outcome")
+    ap.add_argument("--min-gap", type=int, default=None,
+                    help="Minimum bars between sample cutoffs, so windows don't overlap. "
+                         "Defaults to `window` (fully non-overlapping) if not set.")
     ap.add_argument("--outdir", default="./vision_bt_out", help="Where to save images + results")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
@@ -190,7 +193,22 @@ def main():
         print("Not enough rows in this CSV for the requested window/lookahead.", file=sys.stderr)
         sys.exit(1)
 
-    sample_points = sorted(random.sample(range(min_start, max_start), args.samples))
+    min_gap = args.min_gap if args.min_gap is not None else args.window
+    candidates = list(range(min_start, max_start))
+    random.shuffle(candidates)
+
+    sample_points = []
+    for c in candidates:
+        if all(abs(c - existing) >= min_gap for existing in sample_points):
+            sample_points.append(c)
+        if len(sample_points) >= args.samples:
+            break
+    sample_points.sort()
+
+    if len(sample_points) < args.samples:
+        print(f"Warning: could only fit {len(sample_points)} non-overlapping samples "
+              f"(requested {args.samples}) given min_gap={min_gap} and data length. "
+              f"Reduce --samples, --window, or --min-gap to fit more.", file=sys.stderr)
 
     results = []
     for i, cutoff in enumerate(sample_points, 1):

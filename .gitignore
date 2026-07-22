@@ -2,7 +2,7 @@
 .env
 
 # Python
-__pycache__/
+pycache/
 *.pyc
 *.pyo
 .venv/
@@ -12,6 +12,10 @@ venv/
 *.db
 *.sqlite3
 *.log
+
+# Local test data / vision-backtest output (not meant for the repo)
+*_real.csv
+vision_bt_out/
 
 # Optional: skip sample data if you don't need it in the repo
 # data/
