@@ -312,7 +312,7 @@ TWELVEDATA_COOLDOWN_SECONDS = int(os.getenv("TWELVEDATA_COOLDOWN_SECONDS", "60")
 
 # --- Gemini (Telegram /ask assistant only — read-only, no trading impact) --
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 # --- MT5 (Windows VPS execution layer) ----------------------------------
 # Only used by mt5_live_bot.py, the Windows-only entrypoint that fetches

@@ -32,7 +32,7 @@ SETUP
     pip install pandas mplfinance requests
 
     export GEMINI_API_KEY="your key here"      # never hardcode this
-    export GEMINI_MODEL="gemini-2.5-flash"       # or your preferred vision-capable model
+    export GEMINI_MODEL="gemini-3.6-flash"       # or your preferred vision-capable model
 
 USAGE
 -----
@@ -180,7 +180,7 @@ def main():
     if not api_key:
         print("Set GEMINI_API_KEY as an environment variable first.", file=sys.stderr)
         sys.exit(1)
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
     df = pd.read_csv(args.csv)
     outdir = Path(args.outdir)
