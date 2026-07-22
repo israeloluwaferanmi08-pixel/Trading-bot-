@@ -92,6 +92,35 @@ class Store:
                 )
                 """
             )
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chart_analyses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_user_id TEXT,
+                    symbol_guess TEXT,
+                    direction TEXT,
+                    grade TEXT,
+                    entry REAL,
+                    stop_loss REAL,
+                    take_profit_1 REAL,
+                    take_profit_2 REAL,
+                    risk_reward REAL,
+                    support_levels TEXT,
+                    resistance_levels TEXT,
+                    key_strengths TEXT,
+                    key_concerns TEXT,
+                    reasoning TEXT,
+                    invalidation TEXT,
+                    trailing_stop_note TEXT,
+                    alt_entry TEXT,
+                    raw_model_response TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            self.conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chart_analyses_created ON chart_analyses(created_at)"
+            )
             # Dashboard/reporting queries filter on these constantly (per-symbol
             # stats, closed-trade equity curve) — cheap to add, keeps those
             # queries index-backed instead of a full table scan as history grows.
@@ -211,6 +240,51 @@ class Store:
         with _lock:
             return self.conn.execute(
                 "SELECT * FROM signals ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+
+    # --- chart screenshot analyses (Gemini vision feature) ----------------
+    def log_chart_analysis(self, telegram_user_id: str, verdict: dict, raw_response: str) -> int:
+        """Save a Gemini vision chart-analysis result. `verdict` is the parsed
+        dict from the model (direction/grade/entry/etc, see gemini_assistant's
+        CHART_ANALYSIS_PROMPT for the expected shape)."""
+        with _lock, self.conn:
+            cur = self.conn.execute(
+                """
+                INSERT INTO chart_analyses
+                (telegram_user_id, symbol_guess, direction, grade, entry, stop_loss,
+                 take_profit_1, take_profit_2, risk_reward, support_levels,
+                 resistance_levels, key_strengths, key_concerns, reasoning,
+                 invalidation, trailing_stop_note, alt_entry, raw_model_response, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    telegram_user_id,
+                    verdict.get("symbol_guess"),
+                    verdict.get("direction"),
+                    verdict.get("grade"),
+                    verdict.get("entry"),
+                    verdict.get("stop_loss"),
+                    verdict.get("take_profit_1"),
+                    verdict.get("take_profit_2"),
+                    verdict.get("risk_reward"),
+                    json.dumps(verdict.get("support_levels", [])),
+                    json.dumps(verdict.get("resistance_levels", [])),
+                    json.dumps(verdict.get("key_strengths", [])),
+                    json.dumps(verdict.get("key_concerns", [])),
+                    verdict.get("reasoning"),
+                    verdict.get("invalidation"),
+                    verdict.get("trailing_stop_note"),
+                    verdict.get("alt_entry"),
+                    raw_response,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def recent_chart_analyses(self, limit: int = 20):
+        with _lock:
+            return self.conn.execute(
+                "SELECT * FROM chart_analyses ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
 
     def performance_stats_by_symbol(self, symbols):

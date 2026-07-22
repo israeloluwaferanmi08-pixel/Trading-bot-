@@ -17,6 +17,11 @@ Commands:
   /restart     - hard-restart the process (Railway relaunches it)
   /help        - list commands
 
+Also handles: sending a chart screenshot (photo) triggers Gemini vision
+analysis (grade, entry/SL/TP estimate, reasoning) -- separate feature
+from the bot's own signals, purely an AI read of an image, not backed
+by real price data. Results are saved to the chart_analyses table.
+
 None of this can change strategy parameters (config.STRATEGY) — only
 operational knobs (poll interval, scan on/off).
 """
@@ -159,9 +164,61 @@ def _handle_command(text: str, state: BotState, store, notifier) -> str:
             "/setcooldown <min> - change notification cooldown live\n"
             "/reload - re-apply saved operational settings\n"
             "/restart - hard restart the process\n"
-            "/ask <question> - ask Gemini about the bot's stats/signals"
+            "/ask <question> - ask Gemini about the bot's stats/signals\n\n"
+            "Send a chart screenshot (photo) to get an AI read: grade, "
+            "entry/SL/TP estimate, reasoning. This is a separate AI feature, "
+            "not the bot's real signals -- treat it as a second opinion, not "
+            "precise tradeable numbers."
         )
     return "Unknown command. Try /help"
+
+
+def _handle_chart_photo(base_url: str, photos: list, store, notifier) -> None:
+    """Download a chart screenshot the user sent and analyze it with Gemini
+    vision, replying with a formatted result. Best-effort: any failure here
+    should end in a Telegram message telling the user what went wrong,
+    never a silent drop or a crash of the whole listener loop."""
+    try:
+        # Telegram sends multiple sizes; the last entry is the largest.
+        file_id = photos[-1]["file_id"]
+
+        file_info = requests.get(f"{base_url}/getFile", params={"file_id": file_id}, timeout=20).json()
+        file_path = file_info.get("result", {}).get("file_path")
+        if not file_path:
+            notifier.send_now("Couldn't retrieve that photo from Telegram -- try sending it again.")
+            return
+
+        token = base_url.rsplit("/bot", 1)[-1]
+        download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+        img_resp = requests.get(download_url, timeout=30)
+        img_resp.raise_for_status()
+        image_bytes = img_resp.content
+
+        mime_type = "image/png" if file_path.lower().endswith(".png") else "image/jpeg"
+
+        notifier.send_now("📷 Got your chart -- analyzing now, one moment...")
+
+        verdict, raw_text = gemini_assistant.analyze_chart_image(
+            config.GEMINI_API_KEY, config.GEMINI_MODEL, image_bytes, mime_type
+        )
+
+        if verdict is None:
+            notifier.send_now(
+                "Couldn't get a clean read on that chart. This happens sometimes -- "
+                "try a clearer screenshot, or try again in a moment."
+            )
+            logger.warning("Chart analysis parse failure, raw response: %s", raw_text[:500])
+            return
+
+        store.log_chart_analysis(telegram_user_id=None, verdict=verdict, raw_response=raw_text)
+        notifier.send_now(gemini_assistant.format_chart_analysis_for_telegram(verdict))
+
+    except requests.RequestException as e:
+        logger.warning("Chart photo handling failed (network): %s", e)
+        notifier.send_now("Couldn't process that chart right now -- network issue, try again shortly.")
+    except Exception:
+        logger.exception("Chart photo handling failed unexpectedly")
+        notifier.send_now("Something went wrong analyzing that chart. Try again, or a different screenshot.")
 
 
 def start_command_listener(bot_token: str, admin_chat_id: str, state: BotState, store, notifier):
@@ -227,8 +284,16 @@ def start_command_listener(bot_token: str, admin_chat_id: str, state: BotState, 
                     if not msg:
                         continue
                     chat_id = str(msg.get("chat", {}).get("id", ""))
+                    if chat_id != str(admin_chat_id):
+                        continue
+
+                    photos = msg.get("photo")
+                    if photos:
+                        _handle_chart_photo(base_url, photos, store, notifier)
+                        continue
+
                     text = msg.get("text", "")
-                    if chat_id != str(admin_chat_id) or not text.startswith("/"):
+                    if not text.startswith("/"):
                         continue
                     reply = _handle_command(text, state, store, notifier)
                     notifier.send_now(reply)
