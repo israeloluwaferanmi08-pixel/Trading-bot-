@@ -66,7 +66,7 @@ STRATEGY = dict(
     dealing_range_lookback=100,   # bars used to build the premium/discount range
     equilibrium_buffer=0.0,   # % buffer around 50% to treat as "equilibrium / no trade"
     max_zone_age_bars=250,    # a zone older than this (untouched) is dropped as stale
-    sl_buffer_atr=0.15,       # stop loss buffer beyond zone edge, in ATR
+    sl_buffer_atr=0.3,       # stop loss buffer beyond zone edge, in ATR
     tp_r_multiples=(2.0, 3.0),  # take-profit targets expressed in R multiples
 
     # --- Entry depth into zone ------------------------------------------
