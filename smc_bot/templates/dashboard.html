@@ -5,63 +5,115 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bot Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0b0f14; --panel:#121821; --panel-2:#0e141c; --line:#1f2733;
-    --text:#e6edf3; --muted:#8b98a8; --accent:#5fd0a8; --accent-dim:#2c6b57;
-    --danger:#e0667a; --warn:#e0b95f; --buy:#5fd0a8; --sell:#e0667a;
+    --bg:#0c1013; --panel:#12171b; --panel-2:#171d22; --line:#242b31;
+    --text:#e9e6df; --muted:#7d8790; --accent:#c99a4e; --accent-dim:#6b5730;
+    --danger:#a14b5b; --warn:#c99a4e; --buy:#4f9d87; --sell:#a14b5b;
+    --mono:'IBM Plex Mono',ui-monospace,'SF Mono',monospace;
+    --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);
-       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;}
-  header{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;
          border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;}
-  header h1{font-size:16px;margin:0;font-weight:600;}
-  header .meta{color:var(--muted);font-size:12px;}
-  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;}
-  .dot.ok{background:var(--accent);} .dot.bad{background:var(--danger);}
+  header h1{font-family:var(--mono);font-size:14px;margin:0;font-weight:600;letter-spacing:.02em;}
+  header h1 .meta{font-family:var(--sans);font-weight:400;}
+  header .meta{color:var(--muted);font-size:12px;font-family:var(--mono);}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+  .dot.ok{background:var(--buy);box-shadow:0 0 6px rgba(79,157,135,.6);}
+  .dot.bad{background:var(--sell);box-shadow:0 0 6px rgba(161,75,91,.6);}
   main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
-  .card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;}
-  .card .value{font-size:22px;font-weight:600;}
-  .card .value.small{font-size:15px;font-weight:500;}
-  section{margin-bottom:28px;}
-  section h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
-             margin:0 0 12px;font-weight:600;}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:24px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;}
+  .card .label{color:var(--muted);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
+               letter-spacing:.08em;margin-bottom:7px;}
+  .card .value{font-family:var(--mono);font-size:20px;font-weight:600;}
+  .card .value.small{font-size:14px;font-weight:500;}
+  section{margin-bottom:30px;}
+  section h2{display:inline-block;position:relative;font-family:var(--mono);font-size:12px;
+             text-transform:uppercase;letter-spacing:.1em;color:var(--accent);
+             margin:0 0 16px;padding:3px 14px;font-weight:600;}
+  section h2::before,section h2::after{content:'';position:absolute;width:7px;height:7px;
+             border-color:var(--accent);opacity:.7;}
+  section h2::before{left:0;top:0;border-left:2px solid;border-top:2px solid;}
+  section h2::after{right:0;bottom:0;border-right:2px solid;border-bottom:2px solid;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px;}
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
-  button{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:8px;
-         padding:8px 14px;font-size:13px;cursor:pointer;}
+  button{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:4px;
+         padding:8px 14px;font-size:12.5px;font-family:var(--mono);cursor:pointer;}
   button:hover{border-color:var(--accent);}
-  button.primary{background:var(--accent);color:#04140f;border-color:var(--accent);font-weight:600;}
+  button.primary{background:var(--accent);color:#191307;border-color:var(--accent);font-weight:600;}
   button.danger{border-color:var(--danger);color:var(--danger);}
-  button.symbol.disabled{opacity:.45;}
-  input.interval{width:70px;padding:8px;border-radius:8px;border:1px solid var(--line);
-                 background:var(--panel-2);color:var(--text);}
+  button.symbol.disabled{opacity:.4;}
+  input.interval{width:70px;padding:8px;border-radius:4px;border:1px solid var(--line);
+                 background:var(--panel-2);color:var(--text);font-family:var(--mono);}
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  th{text-align:left;color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;
-     letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid var(--line);}
-  td{padding:8px 10px;border-bottom:1px solid var(--line);}
+  th{text-align:left;color:var(--muted);font-family:var(--mono);font-weight:500;font-size:10.5px;
+     text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;}
   tr:last-child td{border-bottom:none;}
-  .tag{padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;}
-  .tag.buy{background:rgba(95,208,168,.15);color:var(--buy);}
-  .tag.sell{background:rgba(224,102,122,.15);color:var(--sell);}
-  .tag.open{background:rgba(224,185,95,.15);color:var(--warn);}
-  .tag.tp_hit{background:rgba(95,208,168,.15);color:var(--buy);}
-  .tag.sl_hit{background:rgba(224,102,122,.15);color:var(--sell);}
-  .tag.expired{background:rgba(139,152,168,.15);color:var(--muted);}
-  .tag.skipped_concurrency{background:rgba(224,185,95,.08);color:var(--muted);border:1px dashed rgba(224,185,95,.4);}
-  .empty{color:var(--muted);font-style:italic;padding:12px 0;}
+  .tag{padding:2px 8px;border-radius:4px;font-size:10.5px;font-weight:600;font-family:var(--mono);
+       text-transform:uppercase;letter-spacing:.03em;}
+  .tag.buy{background:rgba(79,157,135,.15);color:var(--buy);}
+  .tag.sell{background:rgba(161,75,91,.15);color:var(--sell);}
+  .tag.open{background:rgba(201,154,78,.15);color:var(--warn);}
+  .tag.tp_hit{background:rgba(79,157,135,.15);color:var(--buy);}
+  .tag.sl_hit{background:rgba(161,75,91,.15);color:var(--sell);}
+  .tag.expired{background:rgba(125,135,144,.15);color:var(--muted);}
+  .tag.skipped_concurrency{background:rgba(201,154,78,.08);color:var(--muted);border:1px dashed rgba(201,154,78,.4);}
+  .empty{color:var(--muted);font-style:italic;padding:12px 0;font-family:var(--sans);}
   canvas{max-height:260px;}
   .split{display:grid;grid-template-columns:2fr 1fr;gap:16px;}
   @media (max-width:800px){.split{grid-template-columns:1fr;}}
+
+  /* Chart screenshot analysis cards */
+  .disclaimer{background:rgba(201,154,78,.08);border:1px solid rgba(201,154,78,.3);
+              border-radius:6px;padding:12px 16px;color:var(--warn);font-size:12.5px;margin-bottom:16px;
+              font-family:var(--sans);}
+  .analysis-card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+                  padding:0;margin-bottom:16px;overflow:hidden;}
+  .ac-header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .grade-badge{font-family:var(--mono);font-weight:700;font-size:13px;border-radius:4px;padding:5px 11px;
+               min-width:38px;text-align:center;}
+  .grade-Ap, .grade-A{background:rgba(79,157,135,.18);color:var(--buy);}
+  .grade-Bp, .grade-B{background:rgba(201,154,78,.18);color:var(--accent);}
+  .grade-C{background:rgba(125,135,144,.18);color:var(--muted);}
+  .grade-F{background:rgba(161,75,91,.18);color:var(--sell);}
+  .dir-tag{padding:4px 11px;border-radius:4px;font-size:10.5px;font-weight:600;text-transform:uppercase;
+           font-family:var(--mono);letter-spacing:.03em;}
+  .dir-long{background:rgba(79,157,135,.15);color:var(--buy);}
+  .dir-short{background:rgba(161,75,91,.15);color:var(--sell);}
+  .dir-no_trade{background:rgba(125,135,144,.15);color:var(--muted);}
+  .ac-symbol{color:var(--muted);font-family:var(--mono);font-size:11.5px;margin-left:auto;}
+  .ac-levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(85px,1fr));gap:1px;background:var(--line);}
+  .ac-level{background:var(--panel);padding:10px 12px;}
+  .ac-level .l{color:var(--muted);font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
+               letter-spacing:.06em;margin-bottom:3px;}
+  .ac-level .v{font-family:var(--mono);font-size:13.5px;font-weight:600;}
+  .ac-level.stop .v{color:var(--sell);}
+  .ac-level.tp .v{color:var(--buy);}
+  .ac-body{padding:14px 16px;}
+  .ac-section{margin-bottom:12px;}
+  .ac-section:last-child{margin-bottom:0;}
+  .ac-section .h{color:var(--muted);font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
+                 letter-spacing:.06em;margin-bottom:5px;}
+  .ac-section p{margin:0;line-height:1.55;font-family:var(--sans);}
+  .bullets{margin:0;padding:0;list-style:none;}
+  .bullets li{padding:3px 0 3px 18px;position:relative;line-height:1.45;font-size:13px;font-family:var(--sans);}
+  .bullets.strength li:before{content:"+";position:absolute;left:2px;color:var(--buy);font-weight:700;}
+  .bullets.concern li:before{content:"−";position:absolute;left:2px;color:var(--warn);font-weight:700;}
+  .rr-badge{color:var(--accent);font-family:var(--mono);font-weight:600;}
+  .ac-footer{padding:8px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:10.5px;
+             font-family:var(--mono);display:flex;justify-content:space-between;}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🌲 SMC Bot Dashboard <span class="meta">v{{ version }}</span></h1>
+  <h1>[SMC] Bot Dashboard <span class="meta">v{{ version }}</span></h1>
   <div class="meta"><span id="conn-dot" class="dot ok"></span><span id="conn-text">connecting…</span>
     <a href="/logout" style="color:var(--muted);margin-left:14px;">Sign out</a>
   </div>
@@ -113,6 +165,16 @@
         <tbody></tbody>
       </table>
     </div>
+  </section>
+
+  <section>
+    <h2>📷 Chart screenshot analysis <span style="color:var(--muted);text-transform:none;font-weight:400;">(AI estimate, not live signals)</span></h2>
+    <div class="disclaimer">
+      ⚠️ These are Gemini's best-guess reads of a static screenshot -- not computed
+      from real price data like the signals above. Treat grade/entry/SL/TP as a
+      second opinion, not precise tradeable numbers.
+    </div>
+    <div id="chart-analyses-list"></div>
   </section>
 </main>
 
@@ -220,14 +282,14 @@ async function renderEquity() {
   if (equityChart) { equityChart.data.labels = labels; equityChart.data.datasets[0].data = data; equityChart.update(); return; }
   equityChart = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets: [{ label: 'Cumulative R', data, borderColor: '#5fd0a8',
-      backgroundColor: 'rgba(95,208,168,.1)', fill: true, tension: .2, pointRadius: 0 }] },
+    data: { labels, datasets: [{ label: 'Cumulative R', data, borderColor: '#4f9d87',
+      backgroundColor: 'rgba(79,157,135,.12)', fill: true, tension: .2, pointRadius: 0 }] },
     options: {
       responsive: true, maintainAspectRatio: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#8b98a8', maxTicksLimit: 8 }, grid: { color: '#1f2733' } },
-        y: { ticks: { color: '#8b98a8' }, grid: { color: '#1f2733' } },
+        x: { ticks: { color: '#7d8790', maxTicksLimit: 8, font: {family: 'IBM Plex Mono', size: 10} }, grid: { color: '#242b31' } },
+        y: { ticks: { color: '#7d8790', font: {family: 'IBM Plex Mono', size: 10} }, grid: { color: '#242b31' } },
       },
     },
   });
@@ -257,9 +319,79 @@ async function renderErrors() {
   tbody.innerHTML = rows.map(r => `<tr><td>${fmtDate(r.occurred_at)}</td><td>${r.module}</td><td>${r.reason}</td></tr>`).join('');
 }
 
+function fmtNum(n) {
+  if (n === null || n === undefined) return '—';
+  return Number(n).toLocaleString(undefined, {maximumFractionDigits: 5});
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function renderAnalysisCard(row) {
+  const grade = row.grade || '?';
+  const gradeClass = 'grade-' + grade.replace('+', 'p');
+  const direction = row.direction || 'no_trade';
+  const dirClass = 'dir-' + direction;
+  const created = row.created_at ? fmtDate(row.created_at) : '';
+
+  const strengths = (row.key_strengths || []).map(s => `<li>${esc(s)}</li>`).join('');
+  const concerns = (row.key_concerns || []).map(c => `<li>${esc(c)}</li>`).join('');
+  const support = (row.support_levels || []).map(fmtNum).join(', ');
+  const resistance = (row.resistance_levels || []).map(fmtNum).join(', ');
+
+  return `
+    <div class="analysis-card">
+      <div class="ac-header">
+        <div class="grade-badge ${gradeClass}">${esc(grade)}</div>
+        <div class="dir-tag ${dirClass}">${esc(direction.replace('_', ' '))}</div>
+        <div class="ac-symbol">${esc(row.symbol_guess || 'unknown symbol')}</div>
+      </div>
+      <div class="ac-levels">
+        <div class="ac-level entry"><div class="l">Entry</div><div class="v">${fmtNum(row.entry)}</div></div>
+        <div class="ac-level stop"><div class="l">Stop</div><div class="v">${fmtNum(row.stop_loss)}</div></div>
+        <div class="ac-level tp"><div class="l">TP1</div><div class="v">${fmtNum(row.take_profit_1)}</div></div>
+        ${row.take_profit_2 ? `<div class="ac-level tp"><div class="l">TP2</div><div class="v">${fmtNum(row.take_profit_2)}</div></div>` : ''}
+      </div>
+      <div class="ac-body">
+        ${row.risk_reward ? `<div class="ac-section"><span class="rr-badge">R/R ${esc(row.risk_reward)} : 1</span></div>` : ''}
+        ${row.reasoning ? `<div class="ac-section"><div class="h">Summary</div><p>${esc(row.reasoning)}</p></div>` : ''}
+        ${(support || resistance) ? `
+        <div class="ac-section">
+          <div class="h">Key Levels</div>
+          ${support ? `<p style="color:var(--buy)">Support: ${esc(support)}</p>` : ''}
+          ${resistance ? `<p style="color:var(--sell)">Resistance: ${esc(resistance)}</p>` : ''}
+        </div>` : ''}
+        ${strengths ? `<div class="ac-section"><div class="h">Strengths</div><ul class="bullets strength">${strengths}</ul></div>` : ''}
+        ${concerns ? `<div class="ac-section"><div class="h">Concerns</div><ul class="bullets concern">${concerns}</ul></div>` : ''}
+        ${row.invalidation ? `<div class="ac-section"><div class="h">Invalidation</div><p>${esc(row.invalidation)}</p></div>` : ''}
+        ${row.trailing_stop_note ? `<div class="ac-section"><div class="h">Trailing Stop</div><p>${esc(row.trailing_stop_note)}</p></div>` : ''}
+        ${row.alt_entry ? `<div class="ac-section"><div class="h">Alt Entry</div><p>${esc(row.alt_entry)}</p></div>` : ''}
+      </div>
+      <div class="ac-footer">
+        <span>${esc(created)}</span>
+        <span>AI estimate, not live price data</span>
+      </div>
+    </div>
+  `;
+}
+
+async function renderChartAnalyses() {
+  const rows = await api('/api/chart-analyses?limit=20');
+  const el = document.getElementById('chart-analyses-list');
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty">No chart screenshots analyzed yet. Send one to your Telegram bot to see it here.</div>';
+    return;
+  }
+  el.innerHTML = rows.map(renderAnalysisCard).join('');
+}
+
 async function refreshAll() {
   try {
-    await Promise.all([renderStatus(), renderStats(), renderEquity(), renderSignals(), renderErrors()]);
+    await Promise.all([renderStatus(), renderStats(), renderEquity(), renderSignals(), renderErrors(), renderChartAnalyses()]);
   } catch (e) { console.error(e); }
 }
 

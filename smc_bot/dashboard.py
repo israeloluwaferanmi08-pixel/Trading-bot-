@@ -54,7 +54,8 @@ CSRF_HEADER = "X-CSRF-Token"
 
 def _row_to_dict(row) -> dict:
     d = dict(row)
-    for key in ("take_profits", "confluence"):
+    for key in ("take_profits", "confluence", "support_levels", "resistance_levels",
+                "key_strengths", "key_concerns"):
         if d.get(key):
             try:
                 d[key] = json.loads(d[key])
@@ -163,6 +164,13 @@ def create_app(store, bot_state, notifier, cfg) -> Flask:
     @require_auth
     def index():
         return render_template("dashboard.html", version=bot_state.version, symbols=bot_state.symbols)
+
+    @app.get("/api/chart-analyses")
+    @require_auth
+    def api_chart_analyses():
+        limit = min(int(request.args.get("limit", 20)), 200)
+        rows = store.recent_chart_analyses(limit)
+        return jsonify([_row_to_dict(r) for r in rows])
 
     # --- read-only API -----------------------------------------------------
     @app.get("/api/status")
