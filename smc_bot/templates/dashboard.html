@@ -174,6 +174,15 @@
       from real price data like the signals above. Treat grade/entry/SL/TP as a
       second opinion, not precise tradeable numbers.
     </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="controls">
+        <input type="file" id="chart-upload-input" accept="image/png,image/jpeg,image/webp" style="display:none;">
+        <button id="chart-upload-btn" class="primary">+ Upload Chart Screenshot</button>
+        <span id="chart-upload-status" style="color:var(--muted);font-family:var(--mono);font-size:12px;"></span>
+      </div>
+    </div>
+
     <div id="chart-analyses-list"></div>
   </section>
 </main>
@@ -383,11 +392,56 @@ async function renderChartAnalyses() {
   const rows = await api('/api/chart-analyses?limit=20');
   const el = document.getElementById('chart-analyses-list');
   if (!rows.length) {
-    el.innerHTML = '<div class="empty">No chart screenshots analyzed yet. Send one to your Telegram bot to see it here.</div>';
+    el.innerHTML = '<div class="empty">No chart screenshots analyzed yet. Upload one above, or send one to your Telegram bot.</div>';
     return;
   }
   el.innerHTML = rows.map(renderAnalysisCard).join('');
 }
+
+async function uploadChartScreenshot(file) {
+  const statusEl = document.getElementById('chart-upload-status');
+  const btn = document.getElementById('chart-upload-btn');
+  btn.disabled = true;
+  statusEl.textContent = 'Analyzing... (can take up to ~30s)';
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  try {
+    const resp = await fetch('/api/chart-analyses/upload', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrfToken() },
+      credentials: 'same-origin',
+      body: formData,
+    });
+
+    if (resp.status === 401) { location.href = '/login'; return; }
+    if (resp.status === 403) { alert('Session check failed — reloading.'); location.reload(); return; }
+
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = data.error || 'Something went wrong.';
+      return;
+    }
+
+    statusEl.textContent = 'Done.';
+    await renderChartAnalyses();
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  } catch (e) {
+    statusEl.textContent = 'Upload failed -- check your connection and try again.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('chart-upload-btn').addEventListener('click', () => {
+  document.getElementById('chart-upload-input').click();
+});
+document.getElementById('chart-upload-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) uploadChartScreenshot(file);
+  e.target.value = '';  // allow re-selecting the same file next time
+});
 
 async function refreshAll() {
   try {
