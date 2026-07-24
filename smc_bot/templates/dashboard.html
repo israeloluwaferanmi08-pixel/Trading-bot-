@@ -130,23 +130,46 @@
   .rr-badge{color:var(--accent);font-family:var(--mono);font-weight:600;}
   .ac-footer{padding:8px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:10.5px;
              font-family:var(--mono);display:flex;justify-content:space-between;}
+  .tabbar{display:flex;gap:4px;padding:0 28px;border-bottom:1px solid var(--line);
+          background:var(--bg);position:sticky;top:65px;z-index:4;overflow-x:auto;}
+  .tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);
+           font-family:var(--mono);font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;
+           padding:14px 16px;cursor:pointer;white-space:nowrap;transition:color .15s ease;}
+  .tab-btn:hover{color:var(--text);}
+  .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
+  footer{max-width:1200px;margin:20px auto 40px;padding:20px 28px 0;border-top:1px solid var(--line);
+         color:var(--muted);font-family:var(--mono);font-size:11px;text-align:center;
+         letter-spacing:.03em;position:relative;z-index:2;}
+  footer strong{color:var(--accent);}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>[SMC] Bot Dashboard <span class="meta">v{{ version }}</span></h1>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="/static/logo.png" alt="Silver Bot" style="width:38px;height:38px;border-radius:50%;
+         box-shadow:0 0 0 1px var(--line),0 0 14px rgba(201,154,78,.25);">
+    <div>
+      <h1 style="margin:0;line-height:1.2;">SILVER BOT <span class="meta" style="font-family:var(--sans);">v{{ version }}</span></h1>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.08em;">A SILVER LABS PROJECT</div>
+    </div>
+  </div>
   <div class="meta"><span id="conn-dot" class="dot ok"></span><span id="conn-text">connecting…</span>
     <a href="/logout" style="color:var(--muted);margin-left:14px;">Sign out</a>
   </div>
 </header>
 
-<main>
-  <section>
-    <div class="grid" id="status-cards"></div>
-  </section>
+<nav class="tabbar">
+  <button class="tab-btn active" data-tab="overview">Overview</button>
+  <button class="tab-btn" data-tab="signals">Signals</button>
+  <button class="tab-btn" data-tab="charts">Chart Analysis</button>
+  <button class="tab-btn" data-tab="errors">Errors</button>
+</nav>
 
-  <section>
+<main>
+  <section class="tab-panel" data-tab="overview">
+    <div class="grid" id="status-cards"></div>
+
     <h2>Controls</h2>
     <div class="panel controls">
       <button id="btn-pause">⏸ Pause scanning</button>
@@ -157,9 +180,7 @@
       <button id="btn-set-interval">Set</button>
       <div id="symbol-toggles" style="display:flex;gap:8px;margin-left:auto;"></div>
     </div>
-  </section>
 
-  <section>
     <h2>Performance</h2>
     <div class="split">
       <div class="panel">
@@ -169,7 +190,7 @@
     </div>
   </section>
 
-  <section>
+  <section class="tab-panel" data-tab="signals" style="display:none;">
     <h2>Recent signals</h2>
     <div class="panel">
       <table id="signals-table">
@@ -179,21 +200,11 @@
     </div>
   </section>
 
-  <section>
-    <h2>Recent errors</h2>
-    <div class="panel">
-      <table id="errors-table">
-        <thead><tr><th>Time</th><th>Module</th><th>Reason</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
+  <section class="tab-panel" data-tab="charts" style="display:none;">
     <h2>📷 Chart screenshot analysis <span style="color:var(--muted);text-transform:none;font-weight:400;">(AI estimate, not live signals)</span></h2>
     <div class="disclaimer">
       ⚠️ These are Gemini's best-guess reads of a static screenshot -- not computed
-      from real price data like the signals above. Treat grade/entry/SL/TP as a
+      from real price data like the signals tab. Treat grade/entry/SL/TP as a
       second opinion, not precise tradeable numbers.
     </div>
 
@@ -207,7 +218,21 @@
 
     <div id="chart-analyses-list"></div>
   </section>
+
+  <section class="tab-panel" data-tab="errors" style="display:none;">
+    <h2>Recent errors</h2>
+    <div class="panel">
+      <table id="errors-table">
+        <thead><tr><th>Time</th><th>Module</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
 </main>
+
+<footer>
+  SILVER BOT — a <strong>SILVER LABS</strong> project
+</footer>
 
 <script>
 const params = new URLSearchParams(location.search);
@@ -481,6 +506,15 @@ document.getElementById('btn-set-interval').onclick = () => {
 
 refreshAll();
 setInterval(refreshAll, 15000);
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    btn.classList.add('active');
+    document.querySelector(`.tab-panel[data-tab="${btn.dataset.tab}"]`).style.display = '';
+  });
+});
 </script>
 </body>
 </html>
