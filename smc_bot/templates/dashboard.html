@@ -16,18 +16,31 @@
     --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;
+       position:relative;}
+  /* subtle grain texture for depth -- very low opacity, not a gimmick */
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='90' height='90'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
   header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;
-         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;}
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(12,16,19,.85);
+         backdrop-filter:blur(10px);z-index:5;overflow:hidden;}
+  header::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);
+    animation:scan 5s ease-in-out infinite;}
+  @keyframes scan{0%{transform:translateX(-100%);}100%{transform:translateX(100%);}}
   header h1{font-family:var(--mono);font-size:14px;margin:0;font-weight:600;letter-spacing:.02em;}
   header h1 .meta{font-family:var(--sans);font-weight:400;}
   header .meta{color:var(--muted);font-size:12px;font-family:var(--mono);}
   .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle;}
-  .dot.ok{background:var(--buy);box-shadow:0 0 6px rgba(79,157,135,.6);}
+  .dot.ok{background:var(--buy);box-shadow:0 0 6px rgba(79,157,135,.6);animation:pulse 2.4s ease-in-out infinite;}
   .dot.bad{background:var(--sell);box-shadow:0 0 6px rgba(161,75,91,.6);}
-  main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.5;}}
+  main{max-width:1200px;margin:0 auto;padding:24px 28px 60px;position:relative;z-index:2;}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:24px;}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;
+        transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease;}
+  .card:hover{transform:translateY(-2px);border-color:var(--accent-dim);
+             box-shadow:0 6px 20px rgba(0,0,0,.35);}
   .card .label{color:var(--muted);font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
                letter-spacing:.08em;margin-bottom:7px;}
   .card .value{font-family:var(--mono);font-size:20px;font-weight:600;}
@@ -43,9 +56,12 @@
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:18px;}
   .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
   button{background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:4px;
-         padding:8px 14px;font-size:12.5px;font-family:var(--mono);cursor:pointer;}
-  button:hover{border-color:var(--accent);}
+         padding:8px 14px;font-size:12.5px;font-family:var(--mono);cursor:pointer;
+         transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease;}
+  button:hover{border-color:var(--accent);box-shadow:0 0 0 1px rgba(201,154,78,.2),0 4px 12px rgba(201,154,78,.1);}
+  button:active{transform:scale(.97);}
   button.primary{background:var(--accent);color:#191307;border-color:var(--accent);font-weight:600;}
+  button.primary:hover{box-shadow:0 0 0 1px rgba(201,154,78,.4),0 4px 16px rgba(201,154,78,.25);}
   button.danger{border-color:var(--danger);color:var(--danger);}
   button.symbol.disabled{opacity:.4;}
   input.interval{width:70px;padding:8px;border-radius:4px;border:1px solid var(--line);
@@ -73,8 +89,14 @@
   .disclaimer{background:rgba(201,154,78,.08);border:1px solid rgba(201,154,78,.3);
               border-radius:6px;padding:12px 16px;color:var(--warn);font-size:12.5px;margin-bottom:16px;
               font-family:var(--sans);}
+  .row-accent{border-left:2px solid transparent;}
+  .row-buy{border-left-color:var(--buy);}
+  .row-sell{border-left-color:var(--sell);}
+  tr.row-accent td:first-child{padding-left:12px;}
   .analysis-card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
-                  padding:0;margin-bottom:16px;overflow:hidden;}
+                  padding:0;margin-bottom:16px;overflow:hidden;
+                  transition:border-color .15s ease,box-shadow .15s ease;}
+  .analysis-card:hover{border-color:var(--accent-dim);box-shadow:0 8px 24px rgba(0,0,0,.3);}
   .ac-header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);}
   .grade-badge{font-family:var(--mono);font-weight:700;font-size:13px;border-radius:4px;padding:5px 11px;
                min-width:38px;text-align:center;}
@@ -309,7 +331,7 @@ async function renderSignals() {
   const tbody = document.querySelector('#signals-table tbody');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No signals logged yet.</td></tr>'; return; }
   tbody.innerHTML = rows.map(r => `
-    <tr>
+    <tr class="row-accent ${r.direction === 'BUY' ? 'row-buy' : 'row-sell'}">
       <td>#${r.id}</td>
       <td>${r.symbol}</td>
       <td><span class="tag ${r.direction === 'BUY' ? 'buy' : 'sell'}">${r.direction}</span></td>
@@ -353,7 +375,7 @@ function renderAnalysisCard(row) {
   const resistance = (row.resistance_levels || []).map(fmtNum).join(', ');
 
   return `
-    <div class="analysis-card">
+    <div class="analysis-card row-accent ${direction === 'long' ? 'row-buy' : direction === 'short' ? 'row-sell' : ''}">
       <div class="ac-header">
         <div class="grade-badge ${gradeClass}">${esc(grade)}</div>
         <div class="dir-tag ${dirClass}">${esc(direction.replace('_', ' '))}</div>
