@@ -44,7 +44,7 @@ from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
-from . import health
+from . import config, gemini_assistant, health
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ def create_app(store, bot_state, notifier, cfg) -> Flask:
         # run still needs the cookie to work, so only force Secure when
         # we can tell we're actually behind Railway/HTTPS.
         SESSION_COOKIE_SECURE=bool(getattr(cfg, "DASHBOARD_FORCE_SECURE_COOKIES", False)),
+        MAX_CONTENT_LENGTH=15 * 1024 * 1024,  # 15MB -- comfortably covers a phone photo, blocks abuse
     )
 
     token = cfg.DASHBOARD_TOKEN
@@ -171,6 +172,34 @@ def create_app(store, bot_state, notifier, cfg) -> Flask:
         limit = min(int(request.args.get("limit", 20)), 200)
         rows = store.recent_chart_analyses(limit)
         return jsonify([_row_to_dict(r) for r in rows])
+
+    @app.post("/api/chart-analyses/upload")
+    @require_auth
+    def api_chart_analyses_upload():
+        file = request.files.get("image")
+        if not file or not file.filename:
+            return jsonify({"error": "No image file received."}), 400
+
+        allowed_ext = (".png", ".jpg", ".jpeg", ".webp")
+        if not file.filename.lower().endswith(allowed_ext):
+            return jsonify({"error": "Please upload a PNG, JPG, or WEBP image."}), 400
+
+        image_bytes = file.read()
+        if not image_bytes:
+            return jsonify({"error": "That file was empty."}), 400
+
+        mime_type = "image/png" if file.filename.lower().endswith(".png") else "image/jpeg"
+
+        verdict, raw_text = gemini_assistant.analyze_chart_image(
+            config.GEMINI_API_KEY, config.GEMINI_MODEL, image_bytes, mime_type
+        )
+
+        if verdict is None:
+            logger.warning("Dashboard chart upload parse failure: %s", raw_text[:500] if raw_text else "")
+            return jsonify({"error": "Couldn't get a clean read on that chart. Try a clearer screenshot."}), 502
+
+        store.log_chart_analysis(telegram_user_id="dashboard", verdict=verdict, raw_response=raw_text)
+        return jsonify({"ok": True, "verdict": verdict})
 
     # --- read-only API -----------------------------------------------------
     @app.get("/api/status")
